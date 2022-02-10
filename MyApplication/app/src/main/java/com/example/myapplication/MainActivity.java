@@ -5,6 +5,7 @@ import androidx.core.app.ActivityCompat;
 
 import android.Manifest;
 import android.app.Activity;
+import android.content.Context;
 import android.content.ContextWrapper;
 import android.content.Intent;
 import android.content.pm.PackageManager;
@@ -12,13 +13,16 @@ import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Color;
 import android.graphics.PixelFormat;
+import android.graphics.SurfaceTexture;
 import android.hardware.display.DisplayManager;
 import android.media.Image;
 import android.media.ImageReader;
 import android.media.projection.MediaProjection;
 import android.media.projection.MediaProjectionManager;
+import android.opengl.GLSurfaceView;
 import android.os.Bundle;
 import android.os.Environment;
+import android.util.AttributeSet;
 import android.util.DisplayMetrics;
 import android.util.Log;
 import android.view.Surface;
@@ -29,6 +33,21 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 
+import javax.microedition.khronos.egl.EGLConfig;
+import javax.microedition.khronos.opengles.GL10;
+
+import javax.microedition.khronos.egl.EGLConfig;
+import javax.microedition.khronos.opengles.GL10;
+import android.content.Context;
+import android.graphics.SurfaceTexture;
+import android.opengl.GLES11Ext;
+import android.opengl.GLES20;
+import android.opengl.GLSurfaceView;
+import android.opengl.GLSurfaceView.Renderer;
+import android.util.AttributeSet;
+import android.util.Log;
+
+//https://stackoverflow.com/questions/31297246/activity-appcompatactivity-fragmentactivity-and-actionbaractivity-when-to-us
 public class MainActivity extends AppCompatActivity {
 
     private static final String TAG = "MyApplication main";
@@ -54,29 +73,43 @@ public class MainActivity extends AppCompatActivity {
         // verifying permission to write/read files from file system
         verifyStoragePermission(this);
 
+        // looks like imagereader is best: https://stackify.dev/121209-take-a-screenshot-using-mediaprojection
+        // because doing opengl will just allow shaders, but we just want to reader the pixels. -> we don't want to modify the pixels so no need for shaders
         // ask for permission to record screen
         final MediaProjectionManager mMediaProjectionManager = (MediaProjectionManager) getSystemService(MEDIA_PROJECTION_SERVICE);
         startActivityForResult(mMediaProjectionManager.createScreenCaptureIntent(), REQUEST_CODE_MEDIA_PROJECTION);
 
-        //        ActivityResultLauncher<Intent> mainActivityResultLauncher = registerForActivityResult(
-//                new ActivityResultContracts.StartActivityForResult(),
-//                new ActivityResultCallback<ActivityResult>() {
-//                    @Override
-//                    public void onActivityResult(ActivityResult result) {
-//                        if (result.getResultCode() == Activity.RESULT_OK) {
-//                            // There are no request codes
-//                            Intent data = result.getData();
-//                            doSomeOperations();
-//                        }
-//                    }
-//                });
-//
-//        public void openSomeActivityForResult() {
-//            Intent intent = new Intent(this, SomeActivity.class);
-//            someActivityResultLauncher.launch(intent);
-//        }
+        /*ActivityResultLauncher<Intent> mainActivityResultLauncher = registerForActivityResult(
+        new ActivityResultContracts.StartActivityForResult(),
+        new ActivityResultCallback<ActivityResult>() {
+            @Override
+            public void onActivityResult(ActivityResult result) {
+                if (result.getResultCode() == Activity.RESULT_OK) {
+                    // There are no request codes
+                    Intent data = result.getData();
+                    doSomeOperations();
+                }
+            }
+        });
+
+        public void openSomeActivityForResult() {
+            Intent intent = new Intent(this, SomeActivity.class);
+            someActivityResultLauncher.launch(intent);
+        }*/
 
     }
+
+    @Override
+    protected void onPause() {
+        super.onPause();
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+    }
+
+    private GLSurfaceView mGLView;
 
 
     @Override
@@ -113,6 +146,3 @@ public class MainActivity extends AppCompatActivity {
     }
 
 }
-
-
-

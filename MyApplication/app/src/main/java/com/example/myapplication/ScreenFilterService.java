@@ -6,9 +6,7 @@ import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.app.Service;
-import android.content.ContextWrapper;
 import android.content.Intent;
-import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Color;
 import android.graphics.PixelFormat;
@@ -18,17 +16,14 @@ import android.media.ImageReader;
 import android.media.projection.MediaProjection;
 import android.media.projection.MediaProjectionManager;
 import android.os.Build;
-import android.os.Environment;
 import android.os.IBinder;
 import android.util.DisplayMetrics;
 import android.util.Log;
 import android.view.Surface;
 import android.widget.Toast;
-
-import java.io.File;
-import java.io.FileOutputStream;
-import java.io.IOException;
 import java.nio.ByteBuffer;
+
+
 
 public class ScreenFilterService extends Service {
 
@@ -46,10 +41,6 @@ public class ScreenFilterService extends Service {
     private int mDisplayHeight;
     private int mScreenDensity;
 
-    private long start = 0;
-    private long elapse = 0;
-    private int counter = 0;
-
     private Surface mSurface;
     private MediaProjection mMediaProjection;
     private ImageReader mImgReader;
@@ -57,8 +48,32 @@ public class ScreenFilterService extends Service {
     private static final String EXTRA_RESULT_CODE = "EXTRA_RESULT_CODE";
     public static final String EXTRA_DATA = "EXTRA_DATA";
 
+    // app's toast
+    private Toast appToast;
+
+    // for comparison
+    private long start = 0;
+    private long elapse = 0;
+    // flag to check if its the first to check
+    private boolean isFirst = true;
+    // list of color ints for previous frame
+    private int[] prevColorList;
+    // list of color ints for current frame
+    private int[] currentColorList;
+
+    //MediaProjection should only be sending frames when something on the screen changes.
 
     public ScreenFilterService() {
+    }
+
+    // to avoid display overlapping toasts
+    public void showAToast (String st){ //"Toast toast" is declared in the class
+        try{ appToast.getView().isShown();     // true if visible
+            appToast.setText(st);
+        } catch (Exception e) {         // invisible if exception
+            appToast = Toast.makeText(getApplicationContext(), st, Toast.LENGTH_SHORT);
+        }
+        appToast.show();  //finally display it
     }
 
     // needed to implement, for when others want to bind to this service
@@ -83,42 +98,41 @@ public class ScreenFilterService extends Service {
             mScreenDensity = metrics.densityDpi;
 
             // initializing imageReader to read from Media Projection in image format -> will give us access to image buffer
-            mImgReader = ImageReader.newInstance(mDisplayWidth, mDisplayHeight, PixelFormat.RGBA_8888, 5);
+            // suggest ImageFormat.YUV_420_888 for faster
+            //https://stackoverflow.com/questions/25462277/camera-preview-image-data-processing-with-android-l-and-camera2-api
+            //ImageFormat.YUV_420_888 - not all devices support this, but apparently is more efficient
+            // maximage = lowest as possible, number acquired before need to release
+            mImgReader = ImageReader.newInstance(mDisplayWidth, mDisplayHeight, PixelFormat.RGBA_8888, 1);
+            // https://chromium.googlesource.com/chromium/src/+/2f731e17983201082d9fc725cf7717868fc1e75d/media/capture/content/android/java/src/org/chromium/media/ScreenCapture.java
+            // seems like not all devices support YUV_420_888
+            //mImgReader = ImageReader.newInstance(mDisplayWidth, mDisplayHeight, ImageFormat.YUV_420_888, 5);
             mSurface = mImgReader.getSurface();
+            // only affect display rate, this is not displayed...
+            //mSurface.setFrameRate(60.0f, FRAME_RATE_COMPATIBILITY_DEFAULT);
             mMediaProjection.createVirtualDisplay(
                     "CAPTURE_THREAD_NAME", mDisplayWidth, mDisplayHeight, mScreenDensity,
                     DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR, mSurface, null,
                     null
             );
 
-            // because getExternalDir() gives permission error
-            // to access the file: go to the other SDCard### directory
-            ContextWrapper contextWrapper = new ContextWrapper(getApplicationContext());
-
             // wait for new images to be ready
             mImgReader.setOnImageAvailableListener(new ImageReader.OnImageAvailableListener() {
                 @Override
                 public void onImageAvailable(ImageReader reader) {
-
-                    // TODO find hz
+                    // to find hz
+                    // /1000 to convert milliseconds to seconds, rn in seconds
                     long current = System.currentTimeMillis();
                     elapse = current - start;
                     start = current;
-                    Log.d(TAG, "elapse: " + elapse);
 
                     // https://stackoverflow.com/questions/27581750/android-capture-screen-to-surface-of-imagereader
-                    FileOutputStream fos = null;
-                    Bitmap bitmap = null;
                     Image img = null;
-                    // NOTE: for debugging -> saving out the images
-                    String imageName = "/name_" + Integer.toString(counter) + ".jpeg";
-                    String prevImagePath = contextWrapper.getExternalFilesDir(Environment.DIRECTORY_PICTURES) +  "/name_" + Integer.toString(counter - 1 ) + ".jpeg";
+
                     try {
-                        // gets current image
-                        img = reader.acquireLatestImage();
                         // gets the next image to be rendered
-                        // img = reader.acquireNextImage();
+                        img = reader.acquireNextImage();
                         if (img != null) {
+
                             Image.Plane[] planes = img.getPlanes();
                             if (planes[0].getBuffer() == null) {
                                 return;
@@ -128,17 +142,14 @@ public class ScreenFilterService extends Service {
                             int pixelStride = planes[0].getPixelStride();
                             // This is the distance between the start of two consecutive rows of pixels in the image.
                             int rowStride = planes[0].getRowStride();
+                            // CAN BE STORED
                             int rowPadding = rowStride - pixelStride * mDisplayWidth;
-
                             int offset = 0;
 
-                            bitmap = Bitmap.createBitmap(mDisplayWidth, mDisplayHeight, Bitmap.Config.ARGB_8888);
-                            // copyPixelsFromBuffer crashed and needed to use this process
-                            // |= is +=
                             ByteBuffer buffer = planes[0].getBuffer();
+                            currentColorList = new int[mDisplayHeight*mDisplayWidth];
                             for (int i = 0; i < mDisplayHeight; ++i) {
                                 for (int j = 0; j < mDisplayWidth; ++j) {
-                                    int pixel = 0;
                                     // RGBA_8888: Each pixel is 4 bytes: 8 red bits, 8 green bits, 8 blue bits, and 8 alpha
                                     // 1 byte = 8 bits = 00000000~11111111 (binary)
                                     // https://stackoverflow.com/questions/11380062/what-does-value-0xff-do-in-java
@@ -146,49 +157,31 @@ public class ScreenFilterService extends Service {
                                     // color: https://developer.android.com/reference/android/graphics/Color
                                     // a,r,g,b
                                     int colorInt = (buffer.get(offset + 3) & 0xff) << 24 | (buffer.get(offset) & 0xff) << 16 | (buffer.get(offset + 1) & 0xff) << 8 | (buffer.get(offset + 2)  & 0xff);
-                                    bitmap.setPixel(j, i, colorInt);
+
+                                    int idx = (i*mDisplayWidth) + j;
+                                    // store color values
+                                    currentColorList[idx] = colorInt;
                                     offset += pixelStride;
                                 }
                                 offset += rowPadding;
                             }
 
-                            // NOTE: currently writing to same file, just to see if its reading new frames
-                            File file = new File(contextWrapper.getExternalFilesDir(Environment.DIRECTORY_PICTURES), imageName);
-                            fos = new FileOutputStream(file);
-                            bitmap.compress(Bitmap.CompressFormat.JPEG, 100, fos);
-                            // always storing 2 consecutive images
-                            if (counter != 0){
-                                // compare the new image, if yes -> alert!
-                                Log.i(TAG, "comparing images: " + imageName + " and " + prevImagePath);
-                                compare(BitmapFactory.decodeFile(prevImagePath), bitmap);
+                            if (isFirst == false){
+                                // compare with previous image
+                                compareBuffers(buffer);
                             }
-
-                            Log.i(TAG, "image saved in" + contextWrapper.getExternalFilesDir(Environment.DIRECTORY_PICTURES) +  imageName);
-                            // need to close image when we are done to avoid reaching max outstanding img count (IllegalStateException)
+                            // make current a previous frame
+                            prevColorList=currentColorList;
+                            // close image (max access = 1)
                             img.close();
 
-                            // increment counter
-                            counter ++;
+                            isFirst = false;
                         }
 
                     } catch (Exception e) {
                         e.printStackTrace();
-                    } finally {
-                        if (null != fos) {
-                            try {
-                                fos.close();
-                            } catch (IOException e) {
-                                e.printStackTrace();
-                            }
-                        }
-                        if (null != bitmap) {
-                            bitmap.recycle();
-                        }
-                        if (null != img) {
-                            img.close();
-                        }
-
                     }
+
                 }
             }, null);
 
@@ -196,41 +189,27 @@ public class ScreenFilterService extends Service {
         }
     }
 
+
+
     @Override
     public void onCreate() {
         super.onCreate();
         // can set state active and inactive in here
         STATE = STATE_ACTIVE;
-        Log.d(TAG, "onCreate called");
-
         createNotificationChannel();
-
-
         mMediaProjectionManager = (MediaProjectionManager) getSystemService(MEDIA_PROJECTION_SERVICE);
 
-        // test comparing saved images
-//        ContextWrapper contextWrapper = new ContextWrapper(getApplicationContext());
-//        compare(
-//                BitmapFactory.decodeFile(contextWrapper.getExternalFilesDir(Environment.DIRECTORY_PICTURES) +  "/name1.jpeg"),
-//                BitmapFactory.decodeFile(contextWrapper.getExternalFilesDir(Environment.DIRECTORY_PICTURES) +  "/name2.jpeg")
-//        );
     }
 
     @Override
     public void onDestroy() {
         super.onDestroy();
-        // WindowManager windowManager = (WindowManager) getSystemService(Context.WINDOW_SERVICE);
-        // assert windowManager != null;
-        // windowManager.removeView(mView);
         STATE = STATE_INACTIVE;
-        Log.d(TAG, "onDestroy called");
     }
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
-        Log.d(TAG, "onStartCommand called");
-        Toast.makeText(getApplicationContext(),"There is a Service running in Background",
-                Toast.LENGTH_SHORT).show();
+        showAToast("There is a Service running in Background");
         startScreenFilter(intent);
         return super.onStartCommand(intent, flags, startId);
     }
@@ -310,7 +289,8 @@ public class ScreenFilterService extends Service {
         return false;
     }
 
-    private void compare(Bitmap imgA, Bitmap imgB) {
+    private void compareBuffers(ByteBuffer imgA) {
+        // TODO find a way to skip to current if many are lagging behind?
 
         long difference = 0;
         double intensityA = 0.0;
@@ -322,44 +302,40 @@ public class ScreenFilterService extends Service {
         int totalCount = 0;
         double notCompatibleCount = 0.0;
 
-        // using colorspace: sRGB IEC61966-2.1 range [0, 1]
-        // Log.i(TAG, "imageA: " + imgA.getColorSpace());
-        // Log.i(TAG, "imageb: " + imgB.getColorSpace());
+        for (int i = 0; i < mDisplayHeight; ++i) {
+            for (int j = 0; j < mDisplayWidth; ++j) {
+                //iterating by row
+                int idx = (i*mDisplayWidth) + j;
 
-        // Going through every pixel
-        for (int y = 0; y < mDisplayHeight; y++) {
-            for (int x = 0; x < mDisplayWidth; x++) {
-                Color imgAColor = imgA.getColor(x, y);
-                Color imgBColor = imgB.getColor(x, y);
-                if (imgAColor.toArgb() != imgBColor.toArgb()) {
-                    countDiff++;
-                }
+                int curColor = currentColorList[idx];
+                int RImageA = Color.red(curColor) * 255;
+                int GImageA = Color.green(curColor) * 255;
+                int BImageA = Color.blue(curColor) * 255;
+                //Log.d(TAG, "COLOR A: " + RImageA + " " + GImageA + " " + BImageA);
+                int prevColor = prevColorList[idx];
+                int Rprev = Color.red(prevColor) * 255;
+                int Gprev = Color.green(prevColor) * 255;
+                int Bprev = Color.blue(prevColor) * 255;
+                //Log.d(TAG, "COLOR B: " + Rprev + " " + Gprev + " " + Bprev);
 
-                // TODO COLOR HAS LUMINANCE FUNCTION
-                // if use color.red(color int) will get [0, 255]
-                float redA = imgAColor.red() * 255;
-                float greenA = imgAColor.green() * 255;
-                float blueA = imgAColor.blue() * 255;
-                float redB = imgBColor.red() * 255;
-                float greenB = imgBColor.green() * 255;
-                float blueB = imgBColor.blue() * 255;
-                //Log.i(TAG, "imageA: (" + Integer.toString(x) + ", " + Integer.toString(y) + ") " + redA + " " + greenA + " " + blueA + " " + imgAColor.alpha());
-                //Log.i(TAG, "imageB: (" + Integer.toString(x) + ", " + Integer.toString(y) + ") " + redB + " " + greenB + " " + blueB + " " + imgBColor.alpha());
-                difference += Math.abs(redA - redB);
-                difference += Math.abs(greenA - greenB);
-                difference += Math.abs(blueA - blueB);
+                difference += Math.abs(RImageA - Rprev);
+                difference += Math.abs(GImageA - Gprev);
+                difference += Math.abs(BImageA - Bprev);
+
                 // intensity levels of frame A and frame B
-                intensityA = intensity(redA, greenA, blueA);
-                totalIntensityA += intensity(redA, greenA, blueA);
-                intensityB = intensity(redB, greenB, blueB);
-                totalIntensityB += intensity(redB, greenB, blueB);
-                if (isCompatible(intensityA, intensityB)) {
-                    notCompatibleCount++;
+                intensityA = intensity(RImageA, GImageA, BImageA);
+                totalIntensityA += intensity(RImageA, GImageA, BImageA);
+                intensityB = intensity(Rprev, Gprev, Bprev);
+                totalIntensityB += intensity(Rprev, Gprev, Bprev);
+
+                if (curColor != prevColor) {
+                    if (isCompatible(intensityA, intensityB)) {
+                        notCompatibleCount++;
+                    }
+                    countDiff++;
                 }
             }
         }
-
-        difPercentage = notCompatibleCount / countDiff * 100;
 
         // EVALUATING THE OUTPUT
 
@@ -369,25 +345,30 @@ public class ScreenFilterService extends Service {
         // So total number of pixels = width * height * 3
         double totalPixels = mDisplayHeight * mDisplayWidth * 3;
         System.out.println("The total amount of pixels are: " + totalPixels);
-        double differentPixelPercentage = countDiff / totalPixels;
-        double dangerPercent = differentPixelPercentage * difPercentage;
-        System.out.println("The percentage of dangerous Pixels are: " + dangerPercent + "%");
+        //double differentPixelPercentage = countDiff / totalPixels;
+        //double dangerPercent = differentPixelPercentage * difPercentage;
+        //difPercentage = notCompatibleCount / countDiff * 100;
+        //merging calculations for difPercentage and differentPixelPercentage to get dangerPercent
+        double dangerPercent = (notCompatibleCount/totalPixels) * 100;
+        System.out.println("The percentage of dangerous Pixels are: " + dangerPercent + "%" + "   " + notCompatibleCount + " / " + countDiff);
         if (dangerPercent > 30) {
             System.out.println("The percentage of dangerous pixels are dangerous");
             totalCount++;
         }
-        // to compensate for hzdangerous -> always dangerous for now (60hz is the max fps for android)
+
+        // Normalizing the value of different pixels for accuracy(average pixels per color component)
+        double avg_different_pixels = difference / totalPixels;
+        // There are 255 values of pixels in total
+        double percentage = (avg_different_pixels / 255) * 100;
+        System.out.println("Difference Percentage-->" + percentage);
+
+        // hz will always be dangerous (because of fps), so maybe only take into account when screen is very different?
         if (isHzDangerous((int) elapse)) {
             System.out.println("This GIF's Hz is in the range of being dangerous");
             totalCount++;
         } else {
             System.out.println("This GIF's Hz is in the range of being safe");
         }
-        // Normalizing the value of different pixels for accuracy(average pixels per color component)
-        double avg_different_pixels = difference / totalPixels;
-        // There are 255 values of pixels in total
-        double percentage = (avg_different_pixels / 255) * 100;
-        System.out.println("Difference Percentage-->" + percentage);
 
         double avgIntensityA = totalIntensityA / totalPixels;
         double avgIntensityB = totalIntensityB / totalPixels;
@@ -411,12 +392,15 @@ public class ScreenFilterService extends Service {
             System.out.println("This GIF is risky");
         } else if(totalCount == 2) {
             System.out.println("This GIF is dangerous");
+            showAToast("Danger detected!");
+
         } else if (totalCount == 3) {
             System.out.println("This GIF is extreme");
+            showAToast("Extreme Danger detected!");
+
         } else {
             System.out.println("This GIF is safe to watch");
         }
 
     }
-
 }
