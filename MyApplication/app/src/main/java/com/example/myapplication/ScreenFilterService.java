@@ -57,13 +57,14 @@ public class ScreenFilterService extends Service {
 
     // for comparison
     private long start = 0;
-    private long elapse = 0;
+    private long elapse = 0; // time between loaded frames
     // flag to check if its the first to check
     private boolean isFirst = true;
     // list of color ints for previous frame
     private int[] prevColorList;
     // list of color ints for current frame
     private int[] currentColorList;
+    private long duration_flash = 0; // time between flashing frames
 
     //MediaProjection should only be sending frames when something on the screen changes.
 
@@ -419,12 +420,12 @@ public class ScreenFilterService extends Service {
         System.out.println("Difference Percentage-->" + percentage);
 
         // hz will always be dangerous (because of fps), so maybe only take into account when screen is very different?
-        if (isHzDangerous((int) elapse)) {
-            System.out.println("This GIF's Hz is in the range of being dangerous");
-            totalCount++;
-        } else {
-            System.out.println("This GIF's Hz is in the range of being safe");
-        }
+        //if (isHzDangerous((int) elapse)) {
+        //    System.out.println("This GIF's Hz is in the range of being dangerous");
+        //    totalCount++;
+        //} else {
+        //    System.out.println("This GIF's Hz is in the range of being safe");
+        //}
 
         double avgIntensityA = totalIntensityA / totalPixels;
         double avgIntensityB = totalIntensityB / totalPixels;
@@ -444,6 +445,25 @@ public class ScreenFilterService extends Service {
         System.out.println("Average brightness of frame A: " + toBrightness(avgIntensityA));
         System.out.println("Average brightness of frame B: " + toBrightness(avgIntensityB));
         // reducing totalCount by 1 because ignoring duration for now
+
+        // if count is 0, don't need to store time it occurred
+        // if count shows some risk, store the time it occurred to measure duration between flashes
+        if (totalCount == 0) {
+            System.out.println("This GIF is safe to watch");
+        } else {
+            long cur = System.currentTimeMillis();
+            if (duration_flash != 0) {
+                long flash_elapse = cur - duration_flash;
+                if (isHzDangerous((int) flash_elapse)) {
+                    System.out.println("This GIF's Hz is in the range of being dangerous");
+                    totalCount++;
+                } else {
+                    System.out.println("This GIF's Hz is in the range of being safe");
+                }
+            }
+            duration_flash = cur;
+        }
+
         if (totalCount == 1) {
             System.out.println("This GIF is risky");
             showAToast("This is risky!");
@@ -454,9 +474,6 @@ public class ScreenFilterService extends Service {
         } else if (totalCount == 3) {
             System.out.println("This GIF is extreme");
             showAToast("Extreme Danger detected!");
-
-        } else {
-            System.out.println("This GIF is safe to watch");
         }
 
     }
