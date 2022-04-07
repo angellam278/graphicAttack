@@ -6,6 +6,7 @@ import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.app.Service;
+import android.content.Context;
 import android.content.Intent;
 import android.graphics.BitmapFactory;
 import android.graphics.Color;
@@ -19,14 +20,17 @@ import android.os.Build;
 import android.os.IBinder;
 import android.util.DisplayMetrics;
 import android.util.Log;
+import android.view.Display;
 import android.view.Gravity;
 import android.view.Surface;
+import android.view.WindowManager;
 import android.widget.Toast;
 
 import androidx.core.app.NotificationCompat;
 
 import java.nio.ByteBuffer;
-
+import static java.lang.Math.max;
+import static java.lang.Math.min;
 
 
 public class ScreenFilterService extends Service {
@@ -56,15 +60,24 @@ public class ScreenFilterService extends Service {
     private Toast appToast;
 
     // for comparison
-    private long start = 0;
-    private long elapse = 0; // time between loaded frames
     // flag to check if its the first to check
     private boolean isFirst = true;
     // list of color ints for previous frame
-    private int[] prevColorList;
+    private double[] prevBrightnessList;
     // list of color ints for current frame
-    private int[] currentColorList;
-    private long duration_flash = 0; // time between flashing frames
+    private double[] _currentBrightnessList;
+
+    private double localBrightnessChange = 0.0;
+    private double localExtreme = 0.0;
+    private int frameCount = 0;
+    private int flashFrameCount = 0; // frame count when latest flash was detected
+    private int extremesCount = 0;
+    private int highAreaCount = 0;
+
+    // flash elapse time, store start of the flash
+    private long flashElapseStart = 0;
+
+    private double _prevFrameAverageBrightness;
 
     //MediaProjection should only be sending frames when something on the screen changes.
 
@@ -121,6 +134,11 @@ public class ScreenFilterService extends Service {
             mDisplayHeight = metrics.heightPixels;
             mScreenDensity = metrics.densityDpi;
 
+            Display display = ((WindowManager) getSystemService(Context.WINDOW_SERVICE)).getDefaultDisplay();
+            float refreshRating = display.getRefreshRate();
+            System.out.println("refreshRating: " + refreshRating);
+            // if 1 hz is 1 fps, can we count frames as hz? so if 3 frames in between is 3hz?
+
             // initializing imageReader to read from Media Projection in image format -> will give us access to image buffer
             // suggest ImageFormat.YUV_420_888 for faster
             //https://stackoverflow.com/questions/25462277/camera-preview-image-data-processing-with-android-l-and-camera2-api
@@ -145,9 +163,7 @@ public class ScreenFilterService extends Service {
                 public void onImageAvailable(ImageReader reader) {
                     // to find hz
                     // /1000 to convert milliseconds to seconds, rn in seconds
-                    long current = System.currentTimeMillis();
-                    elapse = current - start;
-                    start = current;
+                    frameCount ++;
 
                     // https://stackoverflow.com/questions/27581750/android-capture-screen-to-surface-of-imagereader
                     Image img = null;
@@ -171,7 +187,10 @@ public class ScreenFilterService extends Service {
                             int offset = 0;
 
                             ByteBuffer buffer = planes[0].getBuffer();
-                            currentColorList = new int[mDisplayHeight*mDisplayWidth];
+
+                            // create buffer to store pixel brightness because we only need brightness for comparison
+                            _currentBrightnessList = new double[mDisplayHeight*mDisplayWidth];
+
                             for (int i = 0; i < mDisplayHeight; ++i) {
                                 for (int j = 0; j < mDisplayWidth; ++j) {
                                     // RGBA_8888: Each pixel is 4 bytes: 8 red bits, 8 green bits, 8 blue bits, and 8 alpha
@@ -183,8 +202,17 @@ public class ScreenFilterService extends Service {
                                     int colorInt = (buffer.get(offset + 3) & 0xff) << 24 | (buffer.get(offset) & 0xff) << 16 | (buffer.get(offset + 1) & 0xff) << 8 | (buffer.get(offset + 2)  & 0xff);
 
                                     int idx = (i*mDisplayWidth) + j;
-                                    // store color values
-                                    currentColorList[idx] = colorInt;
+
+                                    // compute brightness
+                                    int r = Color.red(colorInt) ;
+                                    int g = Color.green(colorInt) ;
+                                    int b = Color.blue(colorInt) ;
+                                    // intensity levels of frame A and frame B
+                                    double pixel_luminance = luminance(r, g, b);
+                                    double pixel_brightness = toBrightness(pixel_luminance);
+                                    // store color values for comparison between frames
+                                    _currentBrightnessList[idx] = pixel_brightness;
+
                                     offset += pixelStride;
                                 }
                                 offset += rowPadding;
@@ -195,7 +223,7 @@ public class ScreenFilterService extends Service {
                                 compareBuffers(buffer);
                             }
                             // make current a previous frame
-                            prevColorList=currentColorList;
+                            prevBrightnessList = _currentBrightnessList;
                             // close image (max access = 1)
                             img.close();
 
@@ -248,8 +276,8 @@ public class ScreenFilterService extends Service {
         NotificationCompat.Builder builder = new NotificationCompat.Builder(this, "notification_id")
         .setContentIntent(PendingIntent.getActivity(this, 0, fullScreenIntent, PendingIntent.FLAG_IMMUTABLE))
                 .setSmallIcon(R.mipmap.ic_launcher)
-                        .setContentTitle("Incoming call")
-                        .setContentText("(919) 555-1234")
+                        .setContentTitle("")
+                        .setContentText("")
                         .setPriority(Notification.PRIORITY_HIGH)
                         .setCategory(Notification.CATEGORY_CALL)
 
@@ -307,7 +335,7 @@ public class ScreenFilterService extends Service {
      * @param blue value of blue of the pixel
      * @return intensity level (luminance) range of 0.0 to 255.0
      */
-    private static double intensity(float red, float green, float blue) {
+    private static double luminance(float red, float green, float blue) {
         return 0.299 * red + 0.587 * green + 0.114 * blue;
     }
 
@@ -325,8 +353,8 @@ public class ScreenFilterService extends Service {
 
     /**
      * Obtaining the brightness level through luminance.
-     * @param luminance luminance value
-     * @return brightness level
+     * @param luminance luminance value mV
+     * @return brightness level cd/m^2
      */
     private static double toBrightness(double luminance) {
         return 413.435 * Math.pow(0.002745 * luminance + 0.0189623, 2.2);
@@ -337,7 +365,7 @@ public class ScreenFilterService extends Service {
      * @param duration duration of GIF (in milliseconds)
      * @return if the Hertz value is dangerous, return true, else false.
      */
-    private static boolean isHzDangerous(int duration) {
+    private static boolean isHzDangerous(double duration) {
         double hz = 1.0 / (duration / 1000.0);
         System.out.println("Hertz: " + hz);
         if (hz >= 3 && hz <= 30) {
@@ -346,135 +374,156 @@ public class ScreenFilterService extends Service {
         return false;
     }
 
+    private static boolean isFrameDangerous(int framesElapsed) {
+        // 1 fps = 1hz
+        // dangerous is 2 (from paper) - 3 (from prev implementation) hz
+        if (framesElapsed < 3) {
+            return true;
+        }
+        return false;
+    }
+
     private void compareBuffers(ByteBuffer imgA) {
         // TODO find a way to skip to current if many are lagging behind?
 
-        long difference = 0;
-        double intensityA = 0.0;
-        double intensityB = 0.0;
-        double totalIntensityA = 0.0;
-        double totalIntensityB = 0.0;
-        double countDiff = 0.0;
-        double difPercentage = 0.0;
-        int totalCount = 0;
-        double notCompatibleCount = 0.0;
+        int riskCount = 0;
 
+        double flashingPixelCount = 0.0;
+
+        // can prob store the prev brightness total/average??
+        double prevTotalBrightness = 0.0;
+        double currentTotalBrightness = 0.0;
+
+        // iterates through pixels to find percentage of flashing pixels and calculate average frame brightness
         for (int i = 0; i < mDisplayHeight; ++i) {
             for (int j = 0; j < mDisplayWidth; ++j) {
                 //iterating by row
                 int idx = (i*mDisplayWidth) + j;
 
-                int curColor = currentColorList[idx];
-                int RImageA = Color.red(curColor) * 255;
-                int GImageA = Color.green(curColor) * 255;
-                int BImageA = Color.blue(curColor) * 255;
-                //Log.d(TAG, "COLOR A: " + RImageA + " " + GImageA + " " + BImageA);
-                int prevColor = prevColorList[idx];
-                int Rprev = Color.red(prevColor) * 255;
-                int Gprev = Color.green(prevColor) * 255;
-                int Bprev = Color.blue(prevColor) * 255;
-                //Log.d(TAG, "COLOR B: " + Rprev + " " + Gprev + " " + Bprev);
+                double prevPixelBrightness = prevBrightnessList[idx];
+                double currentPixelBrightness = _currentBrightnessList[idx];
 
-                difference += Math.abs(RImageA - Rprev);
-                difference += Math.abs(GImageA - Gprev);
-                difference += Math.abs(BImageA - Bprev);
+                // to compute average brightness for current frame
+                // previous frame's average brightness is already computed and stored
+                currentTotalBrightness += _currentBrightnessList[idx];
 
-                // intensity levels of frame A and frame B
-                intensityA = intensity(RImageA, GImageA, BImageA);
-                totalIntensityA += intensity(RImageA, GImageA, BImageA);
-                intensityB = intensity(Rprev, Gprev, Bprev);
-                totalIntensityB += intensity(Rprev, Gprev, Bprev);
+                if (Math.abs(prevPixelBrightness - currentPixelBrightness) > 20) {
+                    // flashing pixel
+                    flashingPixelCount ++;
+                }
+            }
+        }
 
-                if (curColor != prevColor) {
-                    if (isCompatible(intensityA, intensityB)) {
-                        notCompatibleCount++;
+        int totalPixels = mDisplayHeight* mDisplayWidth;
+        double percent_flash_pixel = flashingPixelCount / totalPixels;
+
+        if (frameCount != 0) {
+            // 1) combined   area   of   flashes   occurring  concurrently  occupies  more  than  25%  of  the  displayed  screen  area;
+            // 2) the  flash  frequency  is  higher  than 3 Hz
+            if (isFrameDangerous((frameCount - flashFrameCount)) && (percent_flash_pixel > 0.25)) {
+                highAreaCount ++;
+                if (highAreaCount >= 2) {
+                    // need at least a pair so 2 counts
+                    System.out.println("High area of fast flashing.");
+                    riskCount++;
+                }
+            } else {
+                // reset
+                highAreaCount = 0;
+            }
+        }
+
+        // average brightness per frame DO WE NEED * 3?
+        double currentFrameAverageBrightness =  currentTotalBrightness / (totalPixels * 3);//rgba
+        //double averageBrightnessB = totalBrightnessB/ (mDisplayHeight* mDisplayWidth);
+        double prevFrameAverageBrightness = _prevFrameAverageBrightness;
+
+        // intensity difference
+        // positive means increase in brightness
+        double brightnessChange = currentFrameAverageBrightness - prevFrameAverageBrightness;
+
+        // store for next comparison
+        _prevFrameAverageBrightness = currentFrameAverageBrightness;
+
+        // TODO: still not considering special patterns and red transitions
+
+        // if there is a change in brightness
+        if (brightnessChange != 0.0) {
+
+            // accumulate lowering of intensity or increasing of intensity
+            if ((brightnessChange < 0 && localBrightnessChange <=0) || (brightnessChange > 0 && localBrightnessChange >=0)) {
+                // accumulate brightness in the same direction (increasing or decreasing)
+                // negative means darkening, positive means brightening
+                localBrightnessChange += brightnessChange;
+
+                // reset
+                flashElapseStart = 0;
+
+            } else {
+                // localBrightnessChange sign changes (darkening to brightening or vice versa)
+
+                // store time that flash starts
+                long cur = System.currentTimeMillis();
+
+                // TODO do we still need to account for repetitive flashing if we already have this?
+                if ((flashElapseStart!=0) && ((cur - flashElapseStart / 1000) > 5)){
+                    // series of flashing images (flashing/ intensity going up and down) for longer than 5 seconds can be risky
+                    // even if the difference is not high
+                    System.out.println("Flashing longer than 5 seconds detected.");
+                    // reset to not have repeated alerts
+                    flashElapseStart = 0;
+                    riskCount ++;
+                }
+
+                flashElapseStart = cur;
+
+                // if the brightness change is more than 20 cd/m2 and the darker image's brightness is lower than 160 cd/m2 it is risky
+                if (Math.abs(localExtreme - localBrightnessChange) > 20) {
+                    if (Math.min(localExtreme, localBrightnessChange) < 160) {
+                        extremesCount ++;
+                        if (extremesCount >= 4) {
+                            System.out.println("Flash between a dark image is detected.");
+                            riskCount++;
+                            // TODO only count if flash is a pair of up and down brightness changes
+                            extremesCount = 0;
+                        }
+
                     }
-                    countDiff++;
                 }
+
+                // store frameCount for latest detected flash
+                flashFrameCount = frameCount;
+                // store local extreme
+                localExtreme = localBrightnessChange;
+
+                // reset
+                localBrightnessChange = 0;
+
             }
-        }
-
-        // EVALUATING THE OUTPUT
-
-        // Total number of red pixels = width * height
-        // Total number of blue pixels = width * height
-        // Total number of green pixels = width * height
-        // So total number of pixels = width * height * 3
-        double totalPixels = mDisplayHeight * mDisplayWidth * 3;
-        System.out.println("The total amount of pixels are: " + totalPixels);
-        //double differentPixelPercentage = countDiff / totalPixels;
-        //double dangerPercent = differentPixelPercentage * difPercentage;
-        //difPercentage = notCompatibleCount / countDiff * 100;
-        //merging calculations for difPercentage and differentPixelPercentage to get dangerPercent
-        double dangerPercent = (notCompatibleCount/totalPixels) * 100;
-        System.out.println("The percentage of dangerous Pixels are: " + dangerPercent + "%" + "   " + notCompatibleCount + " / " + countDiff);
-        if (dangerPercent > 30) {
-            System.out.println("The percentage of dangerous pixels are dangerous");
-            totalCount++;
-        }
-
-        // Normalizing the value of different pixels for accuracy(average pixels per color component)
-        double avg_different_pixels = difference / totalPixels;
-        // There are 255 values of pixels in total
-        double percentage = (avg_different_pixels / 255) * 100;
-        System.out.println("Difference Percentage-->" + percentage);
-
-        // hz will always be dangerous (because of fps), so maybe only take into account when screen is very different?
-        //if (isHzDangerous((int) elapse)) {
-        //    System.out.println("This GIF's Hz is in the range of being dangerous");
-        //    totalCount++;
-        //} else {
-        //    System.out.println("This GIF's Hz is in the range of being safe");
-        //}
-
-        double avgIntensityA = totalIntensityA / totalPixels;
-        double avgIntensityB = totalIntensityB / totalPixels;
-        System.out.println("This is the average intensity of frame A: " + avgIntensityA);
-        System.out.println("This is the average intensity of frame B: " + avgIntensityB);
-        if (avgIntensityA >= avgIntensityB) {
-            if (avgIntensityB / avgIntensityA <= .55) {
-                System.out.println("Average intensity ratio between frame A and B " + avgIntensityB / avgIntensityA + " is dangerous");
-                totalCount++;
-            }
+            
         } else {
-            if (avgIntensityA / avgIntensityB <= .55) {
-                System.out.println("Average intensity ratio between frame A and B " + avgIntensityA / avgIntensityB + " is dangerous");
-                totalCount++;
-            }
+            // reset
+            flashElapseStart = 0;
         }
-        System.out.println("Average brightness of frame A: " + toBrightness(avgIntensityA));
-        System.out.println("Average brightness of frame B: " + toBrightness(avgIntensityB));
-        // reducing totalCount by 1 because ignoring duration for now
 
-        // if count is 0, don't need to store time it occurred
-        // if count shows some risk, store the time it occurred to measure duration between flashes
-        if (totalCount == 0) {
+        // Evaluating the results
+        if (riskCount == 0) {
             System.out.println("This GIF is safe to watch");
-        } else {
-            long cur = System.currentTimeMillis();
-            if (duration_flash != 0) {
-                long flash_elapse = cur - duration_flash;
-                if (isHzDangerous((int) flash_elapse)) {
-                    System.out.println("This GIF's Hz is in the range of being dangerous");
-                    totalCount++;
-                } else {
-                    System.out.println("This GIF's Hz is in the range of being safe");
-                }
-            }
-            duration_flash = cur;
-        }
-
-        if (totalCount == 1) {
+        } else  if (riskCount == 1) {
             System.out.println("This GIF is risky");
             showAToast("This is risky!");
-        } else if(totalCount == 2) {
+        } else if(riskCount == 2) {
             System.out.println("This GIF is dangerous");
             showAToast("Danger detected!");
-
-        } else if (totalCount == 3) {
+        } else if (riskCount == 3) {
             System.out.println("This GIF is extreme");
             showAToast("Extreme Danger detected!");
+        } else {
+            System.out.println("This GIF is beyond extreme");
+            showAToast("Extreme Danger detected!");
         }
+
+        // NOTE: toast may obscure gif area and make it detect as safe
 
     }
 }
