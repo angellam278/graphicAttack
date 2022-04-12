@@ -73,6 +73,7 @@ public class ScreenFilterService extends Service {
     private int flashFrameCount = 0; // frame count when latest flash was detected
     private int extremesCount = 0;
     private int highAreaCount = 0;
+    private int changeCount = 0; // if 2 means flash
 
     // flash elapse time, store start of the flash
     private long flashElapseStart = 0;
@@ -377,7 +378,7 @@ public class ScreenFilterService extends Service {
     private static boolean isFrameDangerous(int framesElapsed) {
         // 1 fps = 1hz
         // dangerous is 2 (from paper) - 3 (from prev implementation) hz
-        if (framesElapsed < 3) {
+        if (framesElapsed < 4) {
             return true;
         }
         return false;
@@ -417,25 +418,8 @@ public class ScreenFilterService extends Service {
         int totalPixels = mDisplayHeight* mDisplayWidth;
         double percent_flash_pixel = flashingPixelCount / totalPixels;
 
-        if (frameCount != 0) {
-            // 1) combined   area   of   flashes   occurring  concurrently  occupies  more  than  25%  of  the  displayed  screen  area;
-            // 2) the  flash  frequency  is  higher  than 3 Hz
-            if (isFrameDangerous((frameCount - flashFrameCount)) && (percent_flash_pixel > 0.25)) {
-                highAreaCount ++;
-                if (highAreaCount >= 2) {
-                    // need at least a pair so 2 counts
-                    System.out.println("High area of fast flashing.");
-                    riskCount++;
-                }
-            } else {
-                // reset
-                highAreaCount = 0;
-            }
-        }
-
         // average brightness per frame DO WE NEED * 3?
-        double currentFrameAverageBrightness =  currentTotalBrightness / (totalPixels * 3);//rgba
-        //double averageBrightnessB = totalBrightnessB/ (mDisplayHeight* mDisplayWidth);
+        double currentFrameAverageBrightness =  currentTotalBrightness / (totalPixels );//rgba
         double prevFrameAverageBrightness = _prevFrameAverageBrightness;
 
         // intensity difference
@@ -456,51 +440,76 @@ public class ScreenFilterService extends Service {
                 // negative means darkening, positive means brightening
                 localBrightnessChange += brightnessChange;
 
-                // reset
-                flashElapseStart = 0;
-
             } else {
-                // localBrightnessChange sign changes (darkening to brightening or vice versa)
+                // localBrightnessChange sign changes (darkening to brightening or vice versa) - peak
 
-                // store time that flash starts
-                long cur = System.currentTimeMillis();
+                // flash (determined by hz and change in colors) - interval between two peaks
+                if (isFrameDangerous((frameCount - flashFrameCount))) {
+                    // one peak of flash
+                    changeCount ++;
 
-                // TODO do we still need to account for repetitive flashing if we already have this?
-                if ((flashElapseStart!=0) && ((cur - flashElapseStart / 1000) > 5)){
-                    // series of flashing images (flashing/ intensity going up and down) for longer than 5 seconds can be risky
-                    // even if the difference is not high
-                    System.out.println("Flashing longer than 5 seconds detected.");
-                    // reset to not have repeated alerts
-                    flashElapseStart = 0;
-                    riskCount ++;
-                }
+                    if (changeCount >= 2) {
+                        // pair of change = flash
+                        // System.out.println("Flashing detected.");
+                        // TODO should we mark as risky when flashes?
 
-                flashElapseStart = cur;
+                        // store time that flash starts
+                        long cur = System.currentTimeMillis();
 
-                // if the brightness change is more than 20 cd/m2 and the darker image's brightness is lower than 160 cd/m2 it is risky
-                if (Math.abs(localExtreme - localBrightnessChange) > 20) {
-                    if (Math.min(localExtreme, localBrightnessChange) < 160) {
-                        extremesCount ++;
-                        if (extremesCount >= 4) {
-                            System.out.println("Flash between a dark image is detected.");
+                        // high area flash
+                        // frame count will always be > 0
+                        // 1) combined area of flashes occurring concurrently occupies more than 25% of the displayed screen area;
+                        // 2) the  flash  frequency  is  higher  than 3 Hz
+                        if (percent_flash_pixel > 0.25) {
+                            // need at least a pair so 2 counts
+                            System.out.println("High area of fast flashing.");
                             riskCount++;
-                            // TODO only count if flash is a pair of up and down brightness changes
-                            extremesCount = 0;
                         }
 
+                        // series of flashing images (flashing/ intensity going up and down) for longer than 5 seconds can be risky
+                        if ((flashElapseStart!=0) && ((cur - flashElapseStart / 1000) > 5)){
+                            // even if the difference is not high but this will also include small flickers so
+                            // need to have a big area of flash but not as high as the other?
+                            if (percent_flash_pixel >= 0.08) {
+                                System.out.println("Flashing longer than 5 seconds detected.");
+                                // reset to not have repeated alerts
+                                flashElapseStart = 0;
+                                riskCount++;
+                            }
+                        }
+                        if (flashElapseStart == 0) {
+                            // start timer for a flash
+                            flashElapseStart = cur;
+                        }
+
+                        // high contrast flash
+                        // if the brightness change is more than 20 cd/m2 and the darker image's brightness is lower than 160 cd/m2 it is risky
+                        if (Math.abs(localExtreme - localBrightnessChange) > 20) {
+                            if (Math.min(localExtreme, localBrightnessChange) < 160) {
+                                // paper says 4 flashes is dangerous do we need that ?
+                                //extremesCount ++;
+                                //if (extremesCount >= 4) {
+                                    System.out.println("Flash between a dark image is detected.");
+                                    riskCount++;
+                                    //extremesCount = 0;
+                                //}
+                            }
+                        }
                     }
+                } else {
+                    // not flash (slow change in brightness)
+                    changeCount = 0;
+                    flashElapseStart = 0; // not continuous flashing
                 }
 
                 // store frameCount for latest detected flash
                 flashFrameCount = frameCount;
                 // store local extreme
                 localExtreme = localBrightnessChange;
-
                 // reset
                 localBrightnessChange = 0;
-
             }
-            
+
         } else {
             // reset
             flashElapseStart = 0;
