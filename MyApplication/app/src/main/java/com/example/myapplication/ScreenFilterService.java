@@ -70,13 +70,11 @@ public class ScreenFilterService extends Service {
     private double localBrightnessChange = 0.0;
     private double localExtreme = 0.0;
     private int frameCount = 0;
-    private int flashFrameCount = 0; // frame count when latest flash was detected
-    private int extremesCount = 0;
-    private int highAreaCount = 0;
+    private int flashFrameCount = -1; // frame count when latest flash was detected
     private int changeCount = 0; // if 2 means flash
 
     // flash elapse time, store start of the flash
-    private long flashElapseStart = 0;
+    private long flashElapseStart = -1;
 
     private double _prevFrameAverageBrightness;
 
@@ -88,13 +86,15 @@ public class ScreenFilterService extends Service {
     // to avoid display overlapping toasts
     public void showAToast (String st){ //"Toast toast" is declared in the class
         // TOAST appears on the bottom (newer OS doesn't allow repositioning of toasts)
-//        try{ appToast.getView().isShown();     // true if visible
-//            appToast.setText(st);
-//        } catch (Exception e) {         // invisible if exception
-//            appToast = Toast.makeText(getApplicationContext(), st, Toast.LENGTH_SHORT);
-//        } finally {
-//            appToast = Toast.makeText(getApplicationContext(), st, Toast.LENGTH_SHORT);
-//        }
+//          try{ appToast.getView().isShown();     // true if visible
+//              appToast.setText(st);
+//          } catch (Exception e) {         // invisible if exception
+//              appToast = Toast.makeText(getApplicationContext(), st, Toast.LENGTH_SHORT);
+//          } finally {
+//              appToast = Toast.makeText(getApplicationContext(), st, Toast.LENGTH_SHORT);
+//          }
+//        appToast = Toast.makeText(getApplicationContext(), st, Toast.LENGTH_SHORT);
+//        appToast.setText(st);
 //        appToast.show();  //finally display it
 
         // heads up notification (like ones when you get calls)
@@ -106,9 +106,9 @@ public class ScreenFilterService extends Service {
         NotificationCompat.Builder builder = new NotificationCompat.Builder(this, "notification_id")
                 .setContentIntent(PendingIntent.getActivity(this, 0, intent, PendingIntent.FLAG_IMMUTABLE))
                 .setSmallIcon(R.mipmap.ic_launcher)
-                //.setContentTitle("Incoming call")
+                .setContentTitle("Warning")
                 .setContentText(st)
-                .setPriority(Notification.PRIORITY_HIGH);
+                .setPriority(Notification.PRIORITY_MAX);
         NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
         nm.notify(110, builder.build());
 
@@ -279,7 +279,7 @@ public class ScreenFilterService extends Service {
                 .setSmallIcon(R.mipmap.ic_launcher)
                         .setContentTitle("")
                         .setContentText("")
-                        .setPriority(Notification.PRIORITY_HIGH)
+                        .setPriority(Notification.PRIORITY_MAX)
                         .setCategory(Notification.CATEGORY_CALL)
 
                         // Use a full-screen intent only for the highest-priority alerts where you
@@ -289,14 +289,15 @@ public class ScreenFilterService extends Service {
                         // order for the platform to invoke this notification.
                         .setFullScreenIntent(fullScreenPendingIntent, true);
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            builder.setChannelId("notification_id");
-        }
         //前台服务notification适配
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             NotificationManager notificationManager = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
-            NotificationChannel channel = new NotificationChannel("notification_id", "notification_name", NotificationManager.IMPORTANCE_LOW);
+            NotificationChannel channel = new NotificationChannel("notification_id", "notification_name", NotificationManager.IMPORTANCE_HIGH);
+            channel.setShowBadge(true);
+            channel.setDescription("description");
+            channel.setLockscreenVisibility(Notification.VISIBILITY_PUBLIC);
             notificationManager.createNotificationChannel(channel);
+            builder.setChannelId("notification_id");
         }
 
         Notification incomingCallNotification = builder.build();
@@ -378,6 +379,7 @@ public class ScreenFilterService extends Service {
     private static boolean isFrameDangerous(int framesElapsed) {
         // 1 fps = 1hz
         // dangerous is 2 (from paper) - 3 (from prev implementation) hz
+        //System.out.println("framesElapsed: " + framesElapsed);
         if (framesElapsed < 4) {
             return true;
         }
@@ -386,13 +388,9 @@ public class ScreenFilterService extends Service {
 
     private void compareBuffers(ByteBuffer imgA) {
         // TODO find a way to skip to current if many are lagging behind?
-
         int riskCount = 0;
 
         double flashingPixelCount = 0.0;
-
-        // can prob store the prev brightness total/average??
-        double prevTotalBrightness = 0.0;
         double currentTotalBrightness = 0.0;
 
         // iterates through pixels to find percentage of flashing pixels and calculate average frame brightness
@@ -408,6 +406,7 @@ public class ScreenFilterService extends Service {
                 // previous frame's average brightness is already computed and stored
                 currentTotalBrightness += _currentBrightnessList[idx];
 
+                // do we need to look at darker threshold?
                 if (Math.abs(prevPixelBrightness - currentPixelBrightness) > 20) {
                     // flashing pixel
                     flashingPixelCount ++;
@@ -415,11 +414,11 @@ public class ScreenFilterService extends Service {
             }
         }
 
-        int totalPixels = mDisplayHeight* mDisplayWidth;
+        // luminance brightness is to 255 which is the value of one color component so we should *3 for RGB
+        int totalPixels = mDisplayHeight* mDisplayWidth * 3;
         double percent_flash_pixel = flashingPixelCount / totalPixels;
 
-        // average brightness per frame DO WE NEED * 3?
-        double currentFrameAverageBrightness =  currentTotalBrightness / (totalPixels );//rgba
+        double currentFrameAverageBrightness =  currentTotalBrightness / totalPixels;//rgba
         double prevFrameAverageBrightness = _prevFrameAverageBrightness;
 
         // intensity difference
@@ -439,19 +438,18 @@ public class ScreenFilterService extends Service {
                 // accumulate brightness in the same direction (increasing or decreasing)
                 // negative means darkening, positive means brightening
                 localBrightnessChange += brightnessChange;
-
             } else {
                 // localBrightnessChange sign changes (darkening to brightening or vice versa) - peak
 
                 // flash (determined by hz and change in colors) - interval between two peaks
-                if (isFrameDangerous((frameCount - flashFrameCount))) {
+                if (flashFrameCount!= -1 && isFrameDangerous((frameCount - flashFrameCount))) {
                     // one peak of flash
                     changeCount ++;
 
-                    if (changeCount >= 2) {
+                    // pair of flash
+                    if (changeCount > 2) {
                         // pair of change = flash
-                        // System.out.println("Flashing detected.");
-                        // TODO should we mark as risky when flashes?
+                        //System.out.println("Flashing detected.");
 
                         // store time that flash starts
                         long cur = System.currentTimeMillis();
@@ -467,17 +465,17 @@ public class ScreenFilterService extends Service {
                         }
 
                         // series of flashing images (flashing/ intensity going up and down) for longer than 5 seconds can be risky
-                        if ((flashElapseStart!=0) && ((cur - flashElapseStart / 1000) > 5)){
+                        if ((flashElapseStart!=-1) && ((cur - flashElapseStart / 1000) > 5)){
                             // even if the difference is not high but this will also include small flickers so
                             // need to have a big area of flash but not as high as the other?
                             if (percent_flash_pixel >= 0.08) {
                                 System.out.println("Flashing longer than 5 seconds detected.");
-                                // reset to not have repeated alerts
-                                flashElapseStart = 0;
                                 riskCount++;
                             }
+                            // reset to not have repeated alerts
+                            flashElapseStart = -1;
                         }
-                        if (flashElapseStart == 0) {
+                        if (flashElapseStart == -1) {
                             // start timer for a flash
                             flashElapseStart = cur;
                         }
@@ -487,19 +485,19 @@ public class ScreenFilterService extends Service {
                         if (Math.abs(localExtreme - localBrightnessChange) > 20) {
                             if (Math.min(localExtreme, localBrightnessChange) < 160) {
                                 // paper says 4 flashes is dangerous do we need that ?
-                                //extremesCount ++;
-                                //if (extremesCount >= 4) {
-                                    System.out.println("Flash between a dark image is detected.");
-                                    riskCount++;
-                                    //extremesCount = 0;
-                                //}
+                                System.out.println("Flash between a dark image is detected.");
+                                riskCount++;
                             }
                         }
+                        //reset after each two peaks
+                        changeCount = 0;
                     }
                 } else {
+                    System.out.println("not flash (slow change in brightness)");
                     // not flash (slow change in brightness)
-                    changeCount = 0;
-                    flashElapseStart = 0; // not continuous flashing
+
+                    // not a flash so reset flash elapse
+                    flashElapseStart = -1;
                 }
 
                 // store frameCount for latest detected flash
@@ -509,15 +507,11 @@ public class ScreenFilterService extends Service {
                 // reset
                 localBrightnessChange = 0;
             }
-
-        } else {
-            // reset
-            flashElapseStart = 0;
         }
 
         // Evaluating the results
         if (riskCount == 0) {
-            System.out.println("This GIF is safe to watch");
+            //System.out.println("This GIF is safe to watch");
         } else  if (riskCount == 1) {
             System.out.println("This GIF is risky");
             showAToast("This is risky!");
