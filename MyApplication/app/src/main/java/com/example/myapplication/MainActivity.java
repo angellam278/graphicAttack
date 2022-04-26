@@ -5,9 +5,11 @@ import androidx.core.app.ActivityCompat;
 
 import android.Manifest;
 import android.app.Activity;
+import android.content.ComponentName;
 import android.content.Context;
 import android.content.ContextWrapper;
 import android.content.Intent;
+import android.content.ServiceConnection;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
@@ -19,9 +21,13 @@ import android.media.Image;
 import android.media.ImageReader;
 import android.media.projection.MediaProjection;
 import android.media.projection.MediaProjectionManager;
+import android.net.Uri;
 import android.opengl.GLSurfaceView;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
+import android.os.IBinder;
+import android.provider.Settings;
 import android.util.AttributeSet;
 import android.util.DisplayMetrics;
 import android.util.Log;
@@ -55,7 +61,6 @@ public class MainActivity extends AppCompatActivity {
     private static final String EXTRA_RESULT_CODE =  "EXTRA_RESULT_CODE";
     public static final String EXTRA_DATA =  "EXTRA_DATA";
 
-
     // permission requests
     private static final int REQUEST_EXTERNAL_STORAGE = 1;
     private static String[] PERMISSION_STORAGE = {
@@ -63,7 +68,6 @@ public class MainActivity extends AppCompatActivity {
             Manifest.permission.READ_EXTERNAL_STORAGE
     };
     private static final int REQUEST_CODE_MEDIA_PROJECTION = 1;
-
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -77,25 +81,7 @@ public class MainActivity extends AppCompatActivity {
         // because doing opengl will just allow shaders, but we just want to reader the pixels. -> we don't want to modify the pixels so no need for shaders
         // ask for permission to record screen
         final MediaProjectionManager mMediaProjectionManager = (MediaProjectionManager) getSystemService(MEDIA_PROJECTION_SERVICE);
-        startActivityForResult(mMediaProjectionManager.createScreenCaptureIntent(), REQUEST_CODE_MEDIA_PROJECTION);
-
-        /*ActivityResultLauncher<Intent> mainActivityResultLauncher = registerForActivityResult(
-        new ActivityResultContracts.StartActivityForResult(),
-        new ActivityResultCallback<ActivityResult>() {
-            @Override
-            public void onActivityResult(ActivityResult result) {
-                if (result.getResultCode() == Activity.RESULT_OK) {
-                    // There are no request codes
-                    Intent data = result.getData();
-                    doSomeOperations();
-                }
-            }
-        });
-
-        public void openSomeActivityForResult() {
-            Intent intent = new Intent(this, SomeActivity.class);
-            someActivityResultLauncher.launch(intent);
-        }*/
+        startActivityForResult(mMediaProjectionManager.createScreenCaptureIntent(),  REQUEST_CODE_MEDIA_PROJECTION);
 
     }
 
@@ -115,24 +101,26 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         //super.onActivityResult(requestCode, resultCode, data);
-        if (requestCode != REQUEST_CODE_MEDIA_PROJECTION) {
+        if (requestCode == REQUEST_CODE_MEDIA_PROJECTION) {
+            if (resultCode != RESULT_OK) {
+                Toast.makeText(this,
+                        "User denied screen sharing permission", Toast.LENGTH_SHORT).show();
+                return;
+            }
+
+            // cannot startActivity for Result in Service, so need to ask for permission in activity
+            // and send result code into the Service
+            Bundle mBundle = new Bundle();
+            Intent mIntent =new Intent(MainActivity.this, ScreenFilterService.class);
+            mBundle.putInt(EXTRA_RESULT_CODE, resultCode);
+            mBundle.putParcelable(EXTRA_DATA, data);
+            mIntent.putExtras(mBundle);
+            startService(mIntent);
+
+        } else {
             Log.e(TAG, "Unknown request code: " + requestCode);
             return;
         }
-        if (resultCode != RESULT_OK) {
-            Toast.makeText(this,
-                    "User denied screen sharing permission", Toast.LENGTH_SHORT).show();
-            return;
-        }
-
-        // cannot startActivity for Result in Service, so need to ask for permission in activity
-        // and send result code into the Service
-        Bundle mBundle = new Bundle();
-        Intent mIntent =new Intent(MainActivity.this, ScreenFilterService.class);
-        mBundle.putInt(EXTRA_RESULT_CODE, resultCode);
-        mBundle.putParcelable(EXTRA_DATA, data);
-        mIntent.putExtras(mBundle);
-        startService(mIntent);
 
     }
 
