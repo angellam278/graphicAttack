@@ -1,14 +1,12 @@
 package com.example.myapplication;
 
-
+import android.accessibilityservice.AccessibilityService;
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
-import android.app.Service;
-import android.content.Context;
 import android.content.Intent;
-import android.graphics.BitmapFactory;
+import android.graphics.Bitmap;
 import android.graphics.Color;
 import android.graphics.PixelFormat;
 import android.hardware.display.DisplayManager;
@@ -17,107 +15,199 @@ import android.media.ImageReader;
 import android.media.projection.MediaProjection;
 import android.media.projection.MediaProjectionManager;
 import android.os.Build;
-import android.os.IBinder;
 import android.util.DisplayMetrics;
 import android.util.Log;
-import android.view.Display;
-import android.view.Gravity;
+import android.view.LayoutInflater;
 import android.view.Surface;
 import android.view.WindowManager;
+import android.view.accessibility.AccessibilityEvent;
+import android.widget.FrameLayout;
+import android.widget.ImageView;
 import android.widget.Toast;
-
 import androidx.core.app.NotificationCompat;
+import androidx.core.graphics.ColorUtils;
 
 import java.nio.ByteBuffer;
-import static java.lang.Math.max;
-import static java.lang.Math.min;
 
 
-public class ScreenFilterService extends Service {
+public class ScreenFilterService extends AccessibilityService {
 
-    private static final String TAG = "ScreenFilterService";
+    // APP CONFIGS
+    private int useToast = 0; // 0: use heads up notification, 1: use toast
+    private int solidOverlay = 1; // 0: use interpolated color, 1: use solid grey
 
-    public static int STATE_ACTIVE = 0;
-    public static int STATE_INACTIVE = 1;
+    // variables prefixed with _ (underscore) are private variables
 
-    public static int STATE;
-    static {
-        STATE = STATE_INACTIVE;
-    }
+    // for printing debug lines with Logging
+    private static final String _tag = "ScreenFilterService";
 
-    private int mDisplayWidth;
-    private int mDisplayHeight;
-    private int mScreenDensity;
+    // calculated once
+    private int _displayWidth;
+    private int _displayHeight;
+    private int _screenDensity;
+    private int _statusBarHeight;
 
-    private Surface mSurface;
-    private MediaProjection mMediaProjection;
-    private ImageReader mImgReader;
-    private MediaProjectionManager mMediaProjectionManager;
+    // for media projection
+    private Surface _surface;
+    private MediaProjection _mediaProjection;
+    private ImageReader _imgReader;
+    //MediaProjection should only be sending frames when something on the screen changes.
+    private MediaProjectionManager _mediaProjectionManager;
     private static final String EXTRA_RESULT_CODE = "EXTRA_RESULT_CODE";
     public static final String EXTRA_DATA = "EXTRA_DATA";
+    private static final String EXTRA_STATUSBAR_HEIGHT = "EXTRA_STATUSBAR_HEIGHT";
 
     // app's toast
     private Toast appToast;
 
-    // for comparison
+    // data
     // flag to check if its the first to check
-    private boolean isFirst = true;
+    private boolean _isFirst = true;
+    // list of brightness for previous frame
+    private double[] _prevBrightnessList;
     // list of color ints for previous frame
-    private double[] prevBrightnessList;
+    private int[] _prevColorList;
+
     // list of color ints for current frame
     private double[] _currentBrightnessList;
+    private int[] _currentColorList;
 
-    private double localBrightnessChange = 0.0;
-    private double localExtreme = 0.0;
-    private int frameCount = 0;
-    private int flashFrameCount = -1; // frame count when latest flash was detected
-    private int changeCount = 0; // if 2 means flash
-
+    // for evaluation
+    private double _localBrightnessChange = 0.0;
+    private double _localExtreme = 0.0;
+    private int _frameCount = 0;
+    private int _flashFrameCount = -1; // frame count when latest flash was detected
+    private int _changeCount = 0; // if 2 means flash
     // flash elapse time, store start of the flash
-    private long flashElapseStart = -1;
-
+    private long _flashElapseStart = -1;
     private double _prevFrameAverageBrightness;
 
-    //MediaProjection should only be sending frames when something on the screen changes.
+    // for overlay display
+    private int[] _pixelX; // stores pixel x coordinate
+    private int[] _pixelY; // stores pixel y coordinate
+    private int[] _pixelColorInt; // stores pixel color int
+    private Bitmap _bitmap;
+    FrameLayout _mLayout;
 
     public ScreenFilterService() {
     }
 
-    // to avoid display overlapping toasts
-    public void showAToast (String st){ //"Toast toast" is declared in the class
-        // TOAST appears on the bottom (newer OS doesn't allow repositioning of toasts)
-//          try{ appToast.getView().isShown();     // true if visible
-//              appToast.setText(st);
-//          } catch (Exception e) {         // invisible if exception
-//              appToast = Toast.makeText(getApplicationContext(), st, Toast.LENGTH_SHORT);
-//          } finally {
-//              appToast = Toast.makeText(getApplicationContext(), st, Toast.LENGTH_SHORT);
-//          }
-//        appToast = Toast.makeText(getApplicationContext(), st, Toast.LENGTH_SHORT);
-//        appToast.setText(st);
-//        appToast.show();  //finally display it
-
-        // heads up notification (like ones when you get calls)
-        // vibration, sound, visibility has to be set per device in settings > app notifications
-        Intent intent = new Intent(this, MainActivity.class);
-        PendingIntent pendingIntent = PendingIntent.getActivity(this, 0,
-                intent, PendingIntent.FLAG_IMMUTABLE);
-
-        NotificationCompat.Builder builder = new NotificationCompat.Builder(this, "notification_id")
-                .setContentIntent(PendingIntent.getActivity(this, 0, intent, PendingIntent.FLAG_IMMUTABLE))
-                .setSmallIcon(R.mipmap.ic_launcher)
-                .setContentTitle("Warning")
-                .setContentText(st)
-                .setPriority(Notification.PRIORITY_MAX);
-        NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
-        nm.notify(110, builder.build());
-
+    @Override
+    public void onCreate() {
+        super.onCreate();
+        // can set state active and inactive in here
+        createNotificationChannel();
+        _mediaProjectionManager = (MediaProjectionManager) getSystemService(MEDIA_PROJECTION_SERVICE);
     }
 
-    // needed to implement, for when others want to bind to this service
+
     @Override
-    public IBinder onBind(Intent intent) {
-        return null;
+    public int onStartCommand(Intent intent, int flags, int startId) {
+        showAToast("There is a Service running in Background"); // tells user
+        startScreenFilter(intent);
+        return super.onStartCommand(intent, flags, startId);
+    }
+
+    @Override
+    public void onAccessibilityEvent(AccessibilityEvent event) {
+    }
+
+    @Override
+    public void onInterrupt() {
+    }
+
+    @Override
+    public void onDestroy() {
+        super.onDestroy();
+    }
+
+    @Override
+    protected void onServiceConnected() {
+        // called after enabling:
+        // to enable on device: go to settings -> accessibility and turn on for this application
+        // if this is not enabled, we cannot draw overlay
+
+        super.onServiceConnected();
+
+        // Create an overlay
+        WindowManager wm = (WindowManager) getSystemService(WINDOW_SERVICE);
+        _mLayout = new FrameLayout(this);
+
+        WindowManager.LayoutParams lp = new WindowManager.LayoutParams();
+        // layout is a view
+        // TYPE_ACCESSIBILITY_OVERLAY allows us to send touch gestures through our overlay and draw on top of other apps
+        lp.type = WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY;
+        lp.format = PixelFormat.TRANSLUCENT;
+        lp.flags |= WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE;
+        lp.width = WindowManager.LayoutParams.MATCH_PARENT;
+        lp.height = WindowManager.LayoutParams.MATCH_PARENT;
+
+        LayoutInflater inflater = LayoutInflater.from(this);
+        inflater.inflate(R.layout.overlay, _mLayout);
+
+        wm.addView(_mLayout, lp);
+
+        // set full screen
+       _bitmap = Bitmap.createBitmap(_displayWidth, _displayHeight, Bitmap.Config.ARGB_8888);
+       if (_bitmap == null) {
+           Log.e(_tag, "failed to create overlay bitmal.");
+       }
+
+        updateBitmapView();
+    }
+
+    protected void updateBitmapView() {
+        // redisplay bitmap on imageview
+        // image view is needed to display bitmap on layout
+        ImageView iv = (ImageView)_mLayout.findViewById(R.id.inner);
+        iv.setPadding(0, -_statusBarHeight,0,0);
+        _mLayout.setPadding(0,0,0,0);
+
+        if (iv == null) {
+            Log.e(_tag, "invalid image view!");
+        } else {
+            iv.setImageBitmap(_bitmap);
+        }
+    }
+
+
+    // to avoid display overlapping toasts
+    public void showAToast (String st){ //"Toast toast" is declared in the class
+
+        if (useToast == 1) {
+            // TOAST appears on the bottom (newer OS doesn't allow repositioning of toasts)
+            // NOTE: toast may obscure gif area and make it detect as safe
+
+            try{ appToast.getView().isShown();     // true if visible
+                appToast.setText(st);
+            } catch (Exception e) {         // invisible if exception
+                appToast = Toast.makeText(getApplicationContext(), st, Toast.LENGTH_SHORT);
+            } finally {
+                appToast = Toast.makeText(getApplicationContext(), st, Toast.LENGTH_SHORT);
+            }
+            appToast = Toast.makeText(getApplicationContext(), st, Toast.LENGTH_SHORT);
+            appToast.setText(st);
+            appToast.show();  //finally display it
+
+        } else {
+
+            // heads up notification (like ones when you get calls)
+            // vibration, sound, visibility has to be set per device in settings > app notifications
+            Intent intent = new Intent(this, MainActivity.class);
+            PendingIntent pendingIntent = PendingIntent.getActivity(this, 0,
+                    intent, PendingIntent.FLAG_IMMUTABLE);
+
+            NotificationCompat.Builder builder = new NotificationCompat.Builder(this, "notification_id")
+                    .setContentIntent(PendingIntent.getActivity(this, 0, intent, PendingIntent.FLAG_IMMUTABLE))
+                    .setSmallIcon(R.mipmap.ic_launcher)
+                    .setContentTitle("Warning")
+                    .setContentText(st)
+                    .setPriority(Notification.PRIORITY_MAX);
+            NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+            nm.notify(110, builder.build());
+
+        }
+
     }
 
     /**
@@ -125,50 +215,41 @@ public class ScreenFilterService extends Service {
      * @param intent
      */
     private void startScreenFilter(final Intent intent) {
-        Log.d(TAG, "startScreenFilter" );
-        final int resultCode = intent.getIntExtra(EXTRA_RESULT_CODE, 0);
-        // get MediaProjection
-        mMediaProjection = mMediaProjectionManager.getMediaProjection(resultCode, intent.getParcelableExtra(EXTRA_DATA));
-        if (mMediaProjection != null) {
-            final DisplayMetrics metrics = getResources().getDisplayMetrics();
-            mDisplayWidth = metrics.widthPixels;
-            mDisplayHeight = metrics.heightPixels;
-            mScreenDensity = metrics.densityDpi;
+        Log.d(_tag, "startScreenFilter" );
 
-            Display display = ((WindowManager) getSystemService(Context.WINDOW_SERVICE)).getDefaultDisplay();
-            float refreshRating = display.getRefreshRate();
-            System.out.println("refreshRating: " + refreshRating);
-            // if 1 hz is 1 fps, can we count frames as hz? so if 3 frames in between is 3hz?
+        final int resultCode = intent.getIntExtra(EXTRA_RESULT_CODE, 0);
+        _statusBarHeight = intent.getIntExtra(EXTRA_STATUSBAR_HEIGHT, 0);
+
+        // get MediaProjection
+        _mediaProjection = _mediaProjectionManager.getMediaProjection(resultCode, intent.getParcelableExtra(EXTRA_DATA));
+        if (_mediaProjection != null) {
+            final DisplayMetrics metrics = getResources().getDisplayMetrics();
+            _displayWidth = metrics.widthPixels;
+            _displayHeight = metrics.heightPixels;
+            _screenDensity = metrics.densityDpi;
 
             // initializing imageReader to read from Media Projection in image format -> will give us access to image buffer
-            // suggest ImageFormat.YUV_420_888 for faster
-            //https://stackoverflow.com/questions/25462277/camera-preview-image-data-processing-with-android-l-and-camera2-api
-            //ImageFormat.YUV_420_888 - not all devices support this, but apparently is more efficient
-            // maximage = lowest as possible, number acquired before need to release
-            mImgReader = ImageReader.newInstance(mDisplayWidth, mDisplayHeight, PixelFormat.RGBA_8888, 1);
+            // https://stackoverflow.com/questions/25462277/camera-preview-image-data-processing-with-android-l-and-camera2-api
             // https://chromium.googlesource.com/chromium/src/+/2f731e17983201082d9fc725cf7717868fc1e75d/media/capture/content/android/java/src/org/chromium/media/ScreenCapture.java
-            // seems like not all devices support YUV_420_888
-            //mImgReader = ImageReader.newInstance(mDisplayWidth, mDisplayHeight, ImageFormat.YUV_420_888, 5);
-            mSurface = mImgReader.getSurface();
-            // only affect display rate, this is not displayed...
-            //mSurface.setFrameRate(60.0f, FRAME_RATE_COMPATIBILITY_DEFAULT);
-            mMediaProjection.createVirtualDisplay(
-                    "CAPTURE_THREAD_NAME", mDisplayWidth, mDisplayHeight, mScreenDensity,
-                    DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR, mSurface, null,
+            // ImageFormat.YUV_420_888 - not all devices support this, but apparently is more efficient
+            // so we have to use  PixelFormat.RGBA_8888
+            // maximage = lowest as possible, number acquired before need to release
+            _imgReader = ImageReader.newInstance(_displayWidth, _displayHeight, PixelFormat.RGBA_8888, 1);
+            _surface = _imgReader.getSurface();
+            _mediaProjection.createVirtualDisplay(
+                    "CAPTURE_THREAD_NAME", _displayWidth, _displayHeight, _screenDensity,
+                    DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR, _surface, null,
                     null
             );
 
             // wait for new images to be ready
-            mImgReader.setOnImageAvailableListener(new ImageReader.OnImageAvailableListener() {
+            _imgReader.setOnImageAvailableListener(new ImageReader.OnImageAvailableListener() {
                 @Override
                 public void onImageAvailable(ImageReader reader) {
-                    // to find hz
-                    // /1000 to convert milliseconds to seconds, rn in seconds
-                    frameCount ++;
 
-                    // https://stackoverflow.com/questions/27581750/android-capture-screen-to-surface-of-imagereader
+                    _frameCount ++;
+
                     Image img = null;
-
                     try {
                         // gets the next image to be rendered
                         img = reader.acquireNextImage();
@@ -184,16 +265,17 @@ public class ScreenFilterService extends Service {
                             // This is the distance between the start of two consecutive rows of pixels in the image.
                             int rowStride = planes[0].getRowStride();
                             // CAN BE STORED
-                            int rowPadding = rowStride - pixelStride * mDisplayWidth;
+                            int rowPadding = rowStride - pixelStride * _displayWidth;
                             int offset = 0;
 
                             ByteBuffer buffer = planes[0].getBuffer();
 
                             // create buffer to store pixel brightness because we only need brightness for comparison
-                            _currentBrightnessList = new double[mDisplayHeight*mDisplayWidth];
+                            _currentBrightnessList = new double[_displayHeight*_displayWidth];
+                            _currentColorList = new int[_displayHeight*_displayWidth];
 
-                            for (int i = 0; i < mDisplayHeight; ++i) {
-                                for (int j = 0; j < mDisplayWidth; ++j) {
+                            for (int i = 0; i < _displayHeight; ++i) {
+                                for (int j = 0; j < _displayWidth; ++j) {
                                     // RGBA_8888: Each pixel is 4 bytes: 8 red bits, 8 green bits, 8 blue bits, and 8 alpha
                                     // 1 byte = 8 bits = 00000000~11111111 (binary)
                                     // https://stackoverflow.com/questions/11380062/what-does-value-0xff-do-in-java
@@ -202,33 +284,36 @@ public class ScreenFilterService extends Service {
                                     // a,r,g,b
                                     int colorInt = (buffer.get(offset + 3) & 0xff) << 24 | (buffer.get(offset) & 0xff) << 16 | (buffer.get(offset + 1) & 0xff) << 8 | (buffer.get(offset + 2)  & 0xff);
 
-                                    int idx = (i*mDisplayWidth) + j;
+                                    int idx = (i*_displayWidth) + j;
 
                                     // compute brightness
                                     int r = Color.red(colorInt) ;
                                     int g = Color.green(colorInt) ;
                                     int b = Color.blue(colorInt) ;
-                                    // intensity levels of frame A and frame B
-                                    double pixel_luminance = luminance(r, g, b);
-                                    double pixel_brightness = toBrightness(pixel_luminance);
-                                    // store color values for comparison between frames
-                                    _currentBrightnessList[idx] = pixel_brightness;
+
+                                    // store values for comparison between frames
+                                    _currentBrightnessList[idx] = toBrightness(luminance(r, g, b));
+                                    // if we print out colorInt -> will be negative because:
+                                    // https://stackoverflow.com/questions/25073930/color-parsecolor-returns-negative
+                                    _currentColorList[idx] = colorInt;
 
                                     offset += pixelStride;
                                 }
                                 offset += rowPadding;
                             }
 
-                            if (isFirst == false){
+                            if (_isFirst == false){
                                 // compare with previous image
                                 compareBuffers(buffer);
                             }
                             // make current a previous frame
-                            prevBrightnessList = _currentBrightnessList;
+                            _prevBrightnessList = _currentBrightnessList;
+                            _prevColorList = _currentColorList;
+
                             // close image (max access = 1)
                             img.close();
 
-                            isFirst = false;
+                            _isFirst = false;
                         }
 
                     } catch (Exception e) {
@@ -240,31 +325,6 @@ public class ScreenFilterService extends Service {
 
 
         }
-    }
-
-
-
-    @Override
-    public void onCreate() {
-        super.onCreate();
-        // can set state active and inactive in here
-        STATE = STATE_ACTIVE;
-        createNotificationChannel();
-        mMediaProjectionManager = (MediaProjectionManager) getSystemService(MEDIA_PROJECTION_SERVICE);
-
-    }
-
-    @Override
-    public void onDestroy() {
-        super.onDestroy();
-        STATE = STATE_INACTIVE;
-    }
-
-    @Override
-    public int onStartCommand(Intent intent, int flags, int startId) {
-        showAToast("There is a Service running in Background");
-        startScreenFilter(intent);
-        return super.onStartCommand(intent, flags, startId);
     }
 
     //https://stackoverflow.com/questions/64591594/android-10-androidforegroundservicetype-mediaprojection-not-working-with-ser/68343645#68343645
@@ -289,7 +349,7 @@ public class ScreenFilterService extends Service {
                         // order for the platform to invoke this notification.
                         .setFullScreenIntent(fullScreenPendingIntent, true);
 
-        //前台服务notification适配
+        // notification
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             NotificationManager notificationManager = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
             NotificationChannel channel = new NotificationChannel("notification_id", "notification_name", NotificationManager.IMPORTANCE_HIGH);
@@ -302,33 +362,9 @@ public class ScreenFilterService extends Service {
 
         Notification incomingCallNotification = builder.build();
         startForeground(110, incomingCallNotification);
-
-//        Notification.Builder builder = new Notification.Builder(this.getApplicationContext()); //获取一个Notification构造器
-//        Intent nfIntent = new Intent(this, MainActivity.class); //点击后跳转的界面，可以设置跳转数据
-//
-//        builder.setContentIntent(PendingIntent.getActivity(this, 0, nfIntent, PendingIntent.FLAG_IMMUTABLE)) // 设置PendingIntent
-//                .setLargeIcon(BitmapFactory.decodeResource(this.getResources(), R.mipmap.ic_launcher)) // 设置下拉列表中的图标(大图标)
-//                //.setContentTitle("SMI InstantView") // 设置下拉列表里的标题
-//                .setSmallIcon(R.mipmap.ic_launcher) // 设置状态栏内的小图标
-//                .setContentText("is running......") // 设置上下文内容
-//                .setWhen(System.currentTimeMillis()); // 设置该通知发生的时间
-//
-//        /*以下是对Android 8.0的适配*/
-//        //普通notification适配
-//        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-//            builder.setChannelId("notification_id");
-//        }
-//        //前台服务notification适配
-//        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-//            NotificationManager notificationManager = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
-//            NotificationChannel channel = new NotificationChannel("notification_id", "notification_name", NotificationManager.IMPORTANCE_LOW);
-//            notificationManager.createNotificationChannel(channel);
-//        }
-//
-//        Notification notification = builder.build(); // 获取构建好的Notification
-//        notification.defaults = Notification.DEFAULT_SOUND; //设置为默认的声音
-//        startForeground(110, notification);
     }
+
+    // Utility functions
 
     /**
      * Obtaining the intensity levels of a given pixel
@@ -362,44 +398,34 @@ public class ScreenFilterService extends Service {
         return 413.435 * Math.pow(0.002745 * luminance + 0.0189623, 2.2);
     }
 
-    /**
-     * Evaluating the Hertz value of the given GIF
-     * @param duration duration of GIF (in milliseconds)
-     * @return if the Hertz value is dangerous, return true, else false.
-     */
-    private static boolean isHzDangerous(double duration) {
-        double hz = 1.0 / (duration / 1000.0);
-        System.out.println("Hertz: " + hz);
-        if (hz >= 3 && hz <= 30) {
-            return true;
-        }
-        return false;
-    }
-
     private static boolean isFrameDangerous(int framesElapsed) {
+        // check display rate with display.getRefreshRate();
         // 1 fps = 1hz
         // dangerous is 2 (from paper) - 3 (from prev implementation) hz
-        //System.out.println("framesElapsed: " + framesElapsed);
         if (framesElapsed < 4) {
             return true;
         }
         return false;
     }
 
+    // main function to evaluate the change in previous and current buffers
     private void compareBuffers(ByteBuffer imgA) {
-        // TODO find a way to skip to current if many are lagging behind?
         int riskCount = 0;
 
-        double flashingPixelCount = 0.0;
+        int flashingPixelCount = 0;
         double currentTotalBrightness = 0.0;
 
-        // iterates through pixels to find percentage of flashing pixels and calculate average frame brightness
-        for (int i = 0; i < mDisplayHeight; ++i) {
-            for (int j = 0; j < mDisplayWidth; ++j) {
-                //iterating by row
-                int idx = (i*mDisplayWidth) + j;
+        _pixelX = new int[_displayHeight*_displayWidth];
+        _pixelY = new int[_displayHeight*_displayWidth];
+        _pixelColorInt = new int[_displayHeight*_displayWidth];
 
-                double prevPixelBrightness = prevBrightnessList[idx];
+        // iterates through pixels to find percentage of flashing pixels and calculate average frame brightness
+        for (int i = 0; i < _displayHeight; ++i) {
+            for (int j = 0; j < _displayWidth; ++j) {
+                //iterating by row
+                int idx = (i*_displayWidth) + j;
+
+                double prevPixelBrightness = _prevBrightnessList[idx];
                 double currentPixelBrightness = _currentBrightnessList[idx];
 
                 // to compute average brightness for current frame
@@ -409,13 +435,21 @@ public class ScreenFilterService extends Service {
                 // do we need to look at darker threshold?
                 if (Math.abs(prevPixelBrightness - currentPixelBrightness) > 20) {
                     // flashing pixel
+
+                    // store location and color for overlay (interpolated)
+                    _pixelX[flashingPixelCount] = j;
+                    _pixelY[flashingPixelCount] = i;
+                    _pixelColorInt[flashingPixelCount] = ColorUtils.blendARGB(_prevColorList[idx], _currentColorList[idx], 0.50f);
+
+                    // JUST MASK WITH NEUTRAL GREY TODO
+
                     flashingPixelCount ++;
                 }
             }
         }
 
         // luminance brightness is to 255 which is the value of one color component so we should *3 for RGB
-        int totalPixels = mDisplayHeight* mDisplayWidth * 3;
+        int totalPixels = _displayHeight* _displayWidth * 3;
         double percent_flash_pixel = flashingPixelCount / totalPixels;
 
         double currentFrameAverageBrightness =  currentTotalBrightness / totalPixels;//rgba
@@ -428,28 +462,27 @@ public class ScreenFilterService extends Service {
         // store for next comparison
         _prevFrameAverageBrightness = currentFrameAverageBrightness;
 
-        // TODO: still not considering special patterns and red transitions
+        // TODO: still not considering special patterns and red transitions mentioned in the paper
 
         // if there is a change in brightness
         if (brightnessChange != 0.0) {
 
             // accumulate lowering of intensity or increasing of intensity
-            if ((brightnessChange < 0 && localBrightnessChange <=0) || (brightnessChange > 0 && localBrightnessChange >=0)) {
+            if ((brightnessChange < 0 && _localBrightnessChange <=0) || (brightnessChange > 0 && _localBrightnessChange >=0)) {
                 // accumulate brightness in the same direction (increasing or decreasing)
                 // negative means darkening, positive means brightening
-                localBrightnessChange += brightnessChange;
+                _localBrightnessChange += brightnessChange;
             } else {
-                // localBrightnessChange sign changes (darkening to brightening or vice versa) - peak
+                // _localBrightnessChange sign changes (darkening to brightening or vice versa) - peak
 
                 // flash (determined by hz and change in colors) - interval between two peaks
-                if (flashFrameCount!= -1 && isFrameDangerous((frameCount - flashFrameCount))) {
+                if (_flashFrameCount!= -1 && isFrameDangerous((_frameCount - _flashFrameCount))) {
                     // one peak of flash
-                    changeCount ++;
+                    _changeCount ++;
 
                     // pair of flash
-                    if (changeCount > 2) {
+                    if (_changeCount > 2) {
                         // pair of change = flash
-                        //System.out.println("Flashing detected.");
 
                         // store time that flash starts
                         long cur = System.currentTimeMillis();
@@ -460,73 +493,109 @@ public class ScreenFilterService extends Service {
                         // 2) the  flash  frequency  is  higher  than 3 Hz
                         if (percent_flash_pixel > 0.25) {
                             // need at least a pair so 2 counts
-                            System.out.println("High area of fast flashing.");
+                            Log.d(_tag, "High area of fast flashing.");
                             riskCount++;
                         }
 
                         // series of flashing images (flashing/ intensity going up and down) for longer than 5 seconds can be risky
-                        if ((flashElapseStart!=-1) && ((cur - flashElapseStart / 1000) > 5)){
+                        if ((_flashElapseStart!=-1) && ((cur - _flashElapseStart / 1000) > 5)){
                             // even if the difference is not high but this will also include small flickers so
                             // need to have a big area of flash but not as high as the other?
                             if (percent_flash_pixel >= 0.08) {
-                                System.out.println("Flashing longer than 5 seconds detected.");
+                                Log.d(_tag, "Flashing longer than 5 seconds detected.");
                                 riskCount++;
                             }
                             // reset to not have repeated alerts
-                            flashElapseStart = -1;
+                            _flashElapseStart = -1;
                         }
-                        if (flashElapseStart == -1) {
+                        if (_flashElapseStart == -1) {
                             // start timer for a flash
-                            flashElapseStart = cur;
+                            _flashElapseStart = cur;
                         }
 
                         // high contrast flash
                         // if the brightness change is more than 20 cd/m2 and the darker image's brightness is lower than 160 cd/m2 it is risky
-                        if (Math.abs(localExtreme - localBrightnessChange) > 20) {
-                            if (Math.min(localExtreme, localBrightnessChange) < 160) {
+                        if (Math.abs(_localExtreme - _localBrightnessChange) > 20) {
+                            if (Math.min(_localExtreme, _localBrightnessChange) < 160) {
                                 // paper says 4 flashes is dangerous do we need that ?
-                                System.out.println("Flash between a dark image is detected.");
+                                Log.d(_tag, "Flash between a dark image is detected.");
                                 riskCount++;
                             }
                         }
                         //reset after each two peaks
-                        changeCount = 0;
+                        _changeCount = 0;
                     }
                 } else {
-                    System.out.println("not flash (slow change in brightness)");
+                    Log.d(_tag, "not flash (slow change in brightness)");
                     // not flash (slow change in brightness)
 
                     // not a flash so reset flash elapse
-                    flashElapseStart = -1;
+                    _flashElapseStart = -1;
                 }
 
-                // store frameCount for latest detected flash
-                flashFrameCount = frameCount;
+                // store _frameCount for latest detected flash
+                _flashFrameCount = _frameCount;
                 // store local extreme
-                localExtreme = localBrightnessChange;
+                _localExtreme = _localBrightnessChange;
                 // reset
-                localBrightnessChange = 0;
+                _localBrightnessChange = 0;
             }
         }
 
         // Evaluating the results
         if (riskCount == 0) {
-            //System.out.println("This GIF is safe to watch");
-        } else  if (riskCount == 1) {
-            System.out.println("This GIF is risky");
-            showAToast("This is risky!");
-        } else if(riskCount == 2) {
-            System.out.println("This GIF is dangerous");
-            showAToast("Danger detected!");
-        } else if (riskCount == 3) {
-            System.out.println("This GIF is extreme");
-            showAToast("Extreme Danger detected!");
+            // clear overlay
+            if (_bitmap != null) {
+                _bitmap.eraseColor(Color.TRANSPARENT);
+            }
         } else {
-            System.out.println("This GIF is beyond extreme");
-            showAToast("Extreme Danger detected!");
+
+            if (riskCount == 1) {
+                System.out.println("This GIF is risky");
+                showAToast("This is risky!");
+            } else if(riskCount == 2) {
+                System.out.println("This GIF is dangerous");
+                showAToast("Danger detected!");
+            } else if (riskCount == 3) {
+                System.out.println("This GIF is extreme");
+                showAToast("Extreme Danger detected!");
+            } else {
+                // should never be called
+                Log.e(_tag, "This GIF is beyond extreme");
+                showAToast("Extreme Danger detected!");
+            }
+
+            // draw overlay
+            if (_bitmap != null) {
+                for (int i = 0; i < _pixelX.length; ++i) {
+                    int x = _pixelX[i];
+                    int y = _pixelY[i];
+
+                    int r = Color.red(_pixelColorInt[i]) ;
+                    int g = Color.green(_pixelColorInt[i]) ;
+                    int b = Color.blue(_pixelColorInt[i]) ;
+
+                    if (solidOverlay == 1) {
+                        _bitmap.setPixel(x, y , Color.GRAY);
+                    } else {
+                        _bitmap.setPixel(x, y , Color.rgb(r,g,b));
+                    }
+                }
+            }
+
         }
 
-        // NOTE: toast may obscure gif area and make it detect as safe
+        if (_mLayout != null) {
+            updateBitmapView();
+        }
 
     }
 }
+
+//I/Choreographer: Skipped 84 frames!  The application may be doing too much work on its main thread.
+//https://github.com/flutter/flutter/issues/40563
+
+// debugging tip
+// System.out.println("message to print"); -> to print to the "Run" console
+// Log.e(TAG_string, "message"); -> to print with logger .e will be red (for error)
+// Log.d <- debug log message, .w is for warning

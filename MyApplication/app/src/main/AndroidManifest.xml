@@ -3,11 +3,8 @@
     package="com.example.myapplication">
 
     <!-- permission for recording with media projection requires this -->
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" /> <!-- permission to read/write screenshot files (might only be for debugging) -->
-    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
-    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
-
 
     <application
         android:allowBackup="true"
@@ -16,6 +13,7 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/Theme.MyApplication">
+
         <activity
             android:name=".MainActivity"
             android:exported="true">
@@ -28,20 +26,16 @@
         <service
             android:name=".ScreenFilterService"
             android:description="@string/filter_service_description"
-            android:enabled="true"
-            android:exported="true"
-            android:foregroundServiceType="mediaProjection"></service>
-        <service
-            android:name=".overlayService"
             android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
             android:enabled="true"
-            android:exported="true">
-
-            <meta-data android:name="android.accessibilityservice" android:resource="@xml/accessibilityservice" />
+            android:exported="true"
+            android:foregroundServiceType="mediaProjection">
 
             <intent-filter>
                 <action android:name="android.accessibilityservice.AccessibilityService" />
             </intent-filter>
+
+            <meta-data android:name="android.accessibilityservice" android:resource="@xml/accessibilityservice" />
 
         </service>
 

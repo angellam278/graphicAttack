@@ -5,83 +5,35 @@ import androidx.core.app.ActivityCompat;
 
 import android.Manifest;
 import android.app.Activity;
-import android.content.ComponentName;
-import android.content.Context;
-import android.content.ContextWrapper;
 import android.content.Intent;
-import android.content.ServiceConnection;
 import android.content.pm.PackageManager;
-import android.graphics.Bitmap;
-import android.graphics.BitmapFactory;
-import android.graphics.Color;
-import android.graphics.PixelFormat;
-import android.graphics.SurfaceTexture;
-import android.hardware.display.DisplayManager;
-import android.media.Image;
-import android.media.ImageReader;
-import android.media.projection.MediaProjection;
+import android.content.res.Resources;
 import android.media.projection.MediaProjectionManager;
-import android.net.Uri;
 import android.opengl.GLSurfaceView;
-import android.os.Build;
 import android.os.Bundle;
-import android.os.Environment;
-import android.os.IBinder;
-import android.provider.Settings;
-import android.util.AttributeSet;
-import android.util.DisplayMetrics;
 import android.util.Log;
-import android.view.Surface;
 import android.widget.Toast;
 
-import java.io.File;
-import java.io.FileOutputStream;
-import java.io.IOException;
-import java.nio.ByteBuffer;
-
-import javax.microedition.khronos.egl.EGLConfig;
-import javax.microedition.khronos.opengles.GL10;
-
-import javax.microedition.khronos.egl.EGLConfig;
-import javax.microedition.khronos.opengles.GL10;
-import android.content.Context;
-import android.graphics.SurfaceTexture;
-import android.opengl.GLES11Ext;
-import android.opengl.GLES20;
-import android.opengl.GLSurfaceView;
-import android.opengl.GLSurfaceView.Renderer;
-import android.util.AttributeSet;
-import android.util.Log;
 
 //https://stackoverflow.com/questions/31297246/activity-appcompatactivity-fragmentactivity-and-actionbaractivity-when-to-us
 public class MainActivity extends AppCompatActivity {
 
-    private static final String TAG = "MyApplication main";
+    private static final String _tag = "MyApplication main";
     // NOTE: need to match with the one in service -> maybe make constant file?
     private static final String EXTRA_RESULT_CODE =  "EXTRA_RESULT_CODE";
     public static final String EXTRA_DATA =  "EXTRA_DATA";
+    private static final String EXTRA_STATUSBAR_HEIGHT = "EXTRA_STATUSBAR_HEIGHT";
 
-    // permission requests
-    private static final int REQUEST_EXTERNAL_STORAGE = 1;
-    private static String[] PERMISSION_STORAGE = {
-            Manifest.permission.WRITE_EXTERNAL_STORAGE,
-            Manifest.permission.READ_EXTERNAL_STORAGE
-    };
-    private static final int REQUEST_CODE_MEDIA_PROJECTION = 1;
+    private static final int REQUEST_CODE_MEDIA_PROJECTION = 2;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
-        // verifying permission to write/read files from file system
-        verifyStoragePermission(this);
-
-        // looks like imagereader is best: https://stackify.dev/121209-take-a-screenshot-using-mediaprojection
-        // because doing opengl will just allow shaders, but we just want to reader the pixels. -> we don't want to modify the pixels so no need for shaders
         // ask for permission to record screen
-        final MediaProjectionManager mMediaProjectionManager = (MediaProjectionManager) getSystemService(MEDIA_PROJECTION_SERVICE);
-        startActivityForResult(mMediaProjectionManager.createScreenCaptureIntent(),  REQUEST_CODE_MEDIA_PROJECTION);
+        final MediaProjectionManager _mediaProjectionManager = (MediaProjectionManager) getSystemService(MEDIA_PROJECTION_SERVICE);
+        startActivityForResult(_mediaProjectionManager.createScreenCaptureIntent(),  REQUEST_CODE_MEDIA_PROJECTION);
 
     }
 
@@ -113,24 +65,29 @@ public class MainActivity extends AppCompatActivity {
             Bundle mBundle = new Bundle();
             Intent mIntent =new Intent(MainActivity.this, ScreenFilterService.class);
             mBundle.putInt(EXTRA_RESULT_CODE, resultCode);
+            mBundle.putInt(EXTRA_STATUSBAR_HEIGHT, getStatusBarHeight());
             mBundle.putParcelable(EXTRA_DATA, data);
             mIntent.putExtras(mBundle);
             startService(mIntent);
 
         } else {
-            Log.e(TAG, "Unknown request code: " + requestCode);
+            Log.e(_tag, "Unknown request code: " + requestCode);
             return;
         }
 
     }
 
-
-    public static void verifyStoragePermission(Activity activity) {
-        int permission = ActivityCompat.checkSelfPermission(activity, Manifest.permission.WRITE_EXTERNAL_STORAGE);
-
-        if (permission != PackageManager.PERMISSION_GRANTED) {
-            ActivityCompat.requestPermissions(activity, PERMISSION_STORAGE, REQUEST_EXTERNAL_STORAGE);
+    // src: https://www.tutorialspoint.com/what-is-the-height-of-the-status-bar-in-android
+    private int getStatusBarHeight() {
+        int height;
+        Resources myResources = getResources();
+        int idStatusBarHeight = myResources.getIdentifier( "status_bar_height", "dimen", "android");
+        if (idStatusBarHeight > 0) {
+            height = getResources().getDimensionPixelSize(idStatusBarHeight);
+        } else {
+            height = 0;
         }
+        return height;
     }
 
 }
