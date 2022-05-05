@@ -1,18 +1,13 @@
 package com.example.myapplication;
 
-
 import android.accessibilityservice.AccessibilityService;
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
-import android.app.Service;
-import android.content.Context;
 import android.content.Intent;
 import android.graphics.Bitmap;
-import android.graphics.BitmapFactory;
 import android.graphics.Color;
-import android.graphics.ColorSpace;
 import android.graphics.PixelFormat;
 import android.hardware.display.DisplayManager;
 import android.media.Image;
@@ -20,23 +15,15 @@ import android.media.ImageReader;
 import android.media.projection.MediaProjection;
 import android.media.projection.MediaProjectionManager;
 import android.os.Build;
-import android.os.IBinder;
 import android.util.DisplayMetrics;
 import android.util.Log;
-import android.view.Display;
-import android.view.Gravity;
 import android.view.LayoutInflater;
 import android.view.Surface;
-import android.view.View;
-import android.view.Window;
 import android.view.WindowManager;
 import android.view.accessibility.AccessibilityEvent;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
-import android.widget.LinearLayout;
 import android.widget.Toast;
-
-import androidx.annotation.ColorInt;
 import androidx.core.app.NotificationCompat;
 import androidx.core.graphics.ColorUtils;
 
@@ -44,6 +31,10 @@ import java.nio.ByteBuffer;
 
 
 public class ScreenFilterService extends AccessibilityService {
+
+    // APP CONFIGS
+    private int useToast = 0; // 0: use heads up notification, 1: use toast
+    private int solidOverlay = 1; // 0: use interpolated color, 1: use solid grey
 
     // variables prefixed with _ (underscore) are private variables
 
@@ -68,7 +59,6 @@ public class ScreenFilterService extends AccessibilityService {
 
     // app's toast
     private Toast appToast;
-    private int useToast = 0; // 0: use heads up notification, 1: use toast
 
     // data
     // flag to check if its the first to check
@@ -359,7 +349,7 @@ public class ScreenFilterService extends AccessibilityService {
                         // order for the platform to invoke this notification.
                         .setFullScreenIntent(fullScreenPendingIntent, true);
 
-        //前台服务notification适配
+        // notification
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             NotificationManager notificationManager = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
             NotificationChannel channel = new NotificationChannel("notification_id", "notification_name", NotificationManager.IMPORTANCE_HIGH);
@@ -372,32 +362,6 @@ public class ScreenFilterService extends AccessibilityService {
 
         Notification incomingCallNotification = builder.build();
         startForeground(110, incomingCallNotification);
-
-//        Notification.Builder builder = new Notification.Builder(this.getApplicationContext()); //获取一个Notification构造器
-//        Intent nfIntent = new Intent(this, MainActivity.class); //点击后跳转的界面，可以设置跳转数据
-//
-//        builder.setContentIntent(PendingIntent.getActivity(this, 0, nfIntent, PendingIntent.FLAG_IMMUTABLE)) // 设置PendingIntent
-//                .setLargeIcon(BitmapFactory.decodeResource(this.getResources(), R.mipmap.ic_launcher)) // 设置下拉列表中的图标(大图标)
-//                //.setContentTitle("SMI InstantView") // 设置下拉列表里的标题
-//                .setSmallIcon(R.mipmap.ic_launcher) // 设置状态栏内的小图标
-//                .setContentText("is running......") // 设置上下文内容
-//                .setWhen(System.currentTimeMillis()); // 设置该通知发生的时间
-//
-//        /*以下是对Android 8.0的适配*/
-//        //普通notification适配
-//        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-//            builder.setChannelId("notification_id");
-//        }
-//        //前台服务notification适配
-//        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-//            NotificationManager notificationManager = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
-//            NotificationChannel channel = new NotificationChannel("notification_id", "notification_name", NotificationManager.IMPORTANCE_LOW);
-//            notificationManager.createNotificationChannel(channel);
-//        }
-//
-//        Notification notification = builder.build(); // 获取构建好的Notification
-//        notification.defaults = Notification.DEFAULT_SOUND; //设置为默认的声音
-//        startForeground(110, notification);
     }
 
     // Utility functions
@@ -519,7 +483,6 @@ public class ScreenFilterService extends AccessibilityService {
                     // pair of flash
                     if (_changeCount > 2) {
                         // pair of change = flash
-                        //System.out.println("Flashing detected.");
 
                         // store time that flash starts
                         long cur = System.currentTimeMillis();
@@ -530,7 +493,7 @@ public class ScreenFilterService extends AccessibilityService {
                         // 2) the  flash  frequency  is  higher  than 3 Hz
                         if (percent_flash_pixel > 0.25) {
                             // need at least a pair so 2 counts
-                            System.out.println("High area of fast flashing.");
+                            Log.d(_tag, "High area of fast flashing.");
                             riskCount++;
                         }
 
@@ -539,7 +502,7 @@ public class ScreenFilterService extends AccessibilityService {
                             // even if the difference is not high but this will also include small flickers so
                             // need to have a big area of flash but not as high as the other?
                             if (percent_flash_pixel >= 0.08) {
-                                System.out.println("Flashing longer than 5 seconds detected.");
+                                Log.d(_tag, "Flashing longer than 5 seconds detected.");
                                 riskCount++;
                             }
                             // reset to not have repeated alerts
@@ -555,7 +518,7 @@ public class ScreenFilterService extends AccessibilityService {
                         if (Math.abs(_localExtreme - _localBrightnessChange) > 20) {
                             if (Math.min(_localExtreme, _localBrightnessChange) < 160) {
                                 // paper says 4 flashes is dangerous do we need that ?
-                                System.out.println("Flash between a dark image is detected.");
+                                Log.d(_tag, "Flash between a dark image is detected.");
                                 riskCount++;
                             }
                         }
@@ -563,7 +526,7 @@ public class ScreenFilterService extends AccessibilityService {
                         _changeCount = 0;
                     }
                 } else {
-                    System.out.println("not flash (slow change in brightness)");
+                    Log.d(_tag, "not flash (slow change in brightness)");
                     // not flash (slow change in brightness)
 
                     // not a flash so reset flash elapse
@@ -597,7 +560,8 @@ public class ScreenFilterService extends AccessibilityService {
                 System.out.println("This GIF is extreme");
                 showAToast("Extreme Danger detected!");
             } else {
-                System.out.println("This GIF is beyond extreme");
+                // should never be called
+                Log.e(_tag, "This GIF is beyond extreme");
                 showAToast("Extreme Danger detected!");
             }
 
@@ -611,7 +575,11 @@ public class ScreenFilterService extends AccessibilityService {
                     int g = Color.green(_pixelColorInt[i]) ;
                     int b = Color.blue(_pixelColorInt[i]) ;
 
-                    _bitmap.setPixel(x, y , Color.rgb(r,g,b));
+                    if (solidOverlay == 1) {
+                        _bitmap.setPixel(x, y , Color.GRAY);
+                    } else {
+                        _bitmap.setPixel(x, y , Color.rgb(r,g,b));
+                    }
                 }
             }
 
@@ -630,4 +598,4 @@ public class ScreenFilterService extends AccessibilityService {
 // debugging tip
 // System.out.println("message to print"); -> to print to the "Run" console
 // Log.e(TAG_string, "message"); -> to print with logger .e will be red (for error)
-// Log.d <- display log message
+// Log.d <- debug log message, .w is for warning
