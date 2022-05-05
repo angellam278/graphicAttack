@@ -15,7 +15,9 @@
         android:label="@string/app_name"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
-        android:theme="@style/Theme.MyApplication">
+        android:theme="@style/Theme.MyApplication"
+        >
+
         <activity
             android:name=".MainActivity"
             android:exported="true">
@@ -28,20 +30,16 @@
         <service
             android:name=".ScreenFilterService"
             android:description="@string/filter_service_description"
-            android:enabled="true"
-            android:exported="true"
-            android:foregroundServiceType="mediaProjection"></service>
-        <service
-            android:name=".overlayService"
             android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
             android:enabled="true"
-            android:exported="true">
-
-            <meta-data android:name="android.accessibilityservice" android:resource="@xml/accessibilityservice" />
+            android:exported="true"
+            android:foregroundServiceType="mediaProjection">
 
             <intent-filter>
                 <action android:name="android.accessibilityservice.AccessibilityService" />
             </intent-filter>
+
+            <meta-data android:name="android.accessibilityservice" android:resource="@xml/accessibilityservice" />
 
         </service>
 
