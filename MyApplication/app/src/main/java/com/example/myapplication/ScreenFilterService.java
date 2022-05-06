@@ -21,7 +21,6 @@ import android.view.LayoutInflater;
 import android.view.Surface;
 import android.view.WindowManager;
 import android.view.accessibility.AccessibilityEvent;
-import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.Toast;
@@ -33,6 +32,13 @@ import java.nio.ByteBuffer;
 /*
     A Service allows us to run this screen filter in the background even when the application is not open.
     (https://developer.android.com/guide/components/services)
+
+    We are using Accessibility Service because it allows us to draw an overlay on other apps
+    and send touch gestures through it. User will need to enable Accessibility in
+    Settings > Accessibility > MyApplication to allow us to draw overlays. Because of security reasons
+    user will need to allow this per app everytime they run it.
+    NOTE: some tutorials online may say otherwise because this is only applied to newer OSs and we are testing
+    on the Google Pixel 4a. 
 */
 
 public class ScreenFilterService extends AccessibilityService {
@@ -68,7 +74,7 @@ public class ScreenFilterService extends AccessibilityService {
     private static final String EXTRA_DARKERBRIGHTNESS = "EXTRA_DARKERBRIGHTNESS";
 
     // app's toast notification
-    private Toast appToast;
+    private Toast _appToast;
     private boolean _useToast = false; // false: use heads up notification, true: use toast
 
     // data
@@ -222,16 +228,16 @@ public class ScreenFilterService extends AccessibilityService {
             // TOAST appears on the bottom (newer OS doesn't allow repositioning of toasts)
             // NOTE: toast may obscure gif area and make it detect as safe
 
-            try{ appToast.getView().isShown();     // true if visible
-                appToast.setText(st);
+            try{ _appToast.getView().isShown();     // true if visible
+                _appToast.setText(st);
             } catch (Exception e) {         // invisible if exception
-                appToast = Toast.makeText(getApplicationContext(), st, Toast.LENGTH_SHORT);
+                _appToast = Toast.makeText(getApplicationContext(), st, Toast.LENGTH_SHORT);
             } finally {
-                appToast = Toast.makeText(getApplicationContext(), st, Toast.LENGTH_SHORT);
+                _appToast = Toast.makeText(getApplicationContext(), st, Toast.LENGTH_SHORT);
             }
-            appToast = Toast.makeText(getApplicationContext(), st, Toast.LENGTH_SHORT);
-            appToast.setText(st);
-            appToast.show();  //finally display it
+            _appToast = Toast.makeText(getApplicationContext(), st, Toast.LENGTH_SHORT);
+            _appToast.setText(st);
+            _appToast.show();  //finally display it
 
         } else {
 
@@ -369,7 +375,8 @@ public class ScreenFilterService extends AccessibilityService {
         }
     }
 
-    //https://stackoverflow.com/questions/64591594/android-10-androidforegroundservicetype-mediaprojection-not-working-with-ser/68343645#68343645
+    // because media projection reads the screen, it requires a foreground service which requires a notification system to notify user about their screen being recorded
+    // src: https://stackoverflow.com/questions/64591594/android-10-androidforegroundservicetype-mediaprojection-not-working-with-ser/68343645#68343645
     private void createNotificationChannel() {
 
         Intent fullScreenIntent = new Intent(this, MainActivity.class);
@@ -600,7 +607,7 @@ public class ScreenFilterService extends AccessibilityService {
                     _bitmap.eraseColor(Color.TRANSPARENT);
                 }
             } else {
-                // draw overlay
+                // draw overlay (setting the pixels of the bitmap)
                 if (_bitmap != null) {
                     for (int i = 0; i < _pixelX.length; ++i) {
                         int x = _pixelX[i];
@@ -622,17 +629,10 @@ public class ScreenFilterService extends AccessibilityService {
             }
 
             if (_mLayout != null) {
+                // update the bitmap on ImageView display
                 updateBitmapView();
             }
 
         }
     }
 }
-
-//I/Choreographer: Skipped 84 frames!  The application may be doing too much work on its main thread.
-//https://github.com/flutter/flutter/issues/40563
-
-// debugging tip
-// System.out.println("message to print"); -> to print to the "Run" console
-// Log.e(TAG_string, "message"); -> to print with logger .e will be red (for error)
-// Log.d <- debug log message, .w is for warning

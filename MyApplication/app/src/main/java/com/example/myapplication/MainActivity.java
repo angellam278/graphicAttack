@@ -6,20 +6,33 @@ import android.content.Intent;
 import android.content.res.Resources;
 import android.media.projection.MediaProjectionManager;
 import android.os.Bundle;
-import android.text.Editable;
-import android.text.TextWatcher;
 import android.util.Log;
 import android.view.View;
 import android.widget.Button;
 import android.widget.CompoundButton;
 import android.widget.EditText;
-import android.widget.RadioButton;
 import android.widget.RadioGroup;
 import android.widget.Switch;
 import android.widget.Toast;
 
 
 /*
+    There are 3 files I made: ScreenFilterService.Java, MainActivity.java, overlay.xml, activity_main.xml
+    .xml files are the UI files
+    AndroidManifest.xml is not a UI file but it tells the App everything the app needs to know of.
+    MainActivity.java is the main entry of the app which launches the ScreenFilterService in the background.
+
+    If you see this error: I/Choreographer: Skipped 84 frames!  The application may be doing too much work on its main thread.
+    I'm not sure if its still a bug, but possibly multithreading in service can solve this because pixel evaluations are parallel?
+    Here are what others said about id: https://github.com/flutter/flutter/issues/40563
+
+    DEBUGGING TIPS:
+    System.out.println("message to print"); -> to print to the "Run" console
+    Log.e(TAG_string, "message"); -> to print with logger
+        Log.e <- (red) show error messages
+        Log.d <- (grey) show debug log message
+        Log.w <- show warning log messages
+
     An Activity gives us the main UI of the app.
     (https://developer.android.com/reference/android/app/Activity)
     (why AppCompat Activity: //https://stackoverflow.com/questions/31297246/activity-appcompatactivity-fragmentactivity-and-actionbaractivity-when-to-us)
@@ -31,6 +44,7 @@ public class MainActivity extends AppCompatActivity {
     private static final String TAG = "MyApplication main";
 
     // NOTE: need to match with the ones in service
+    // (they're request code strings, doesn't matter what they are but just need to be unique)
     private static final String EXTRA_RESULT_CODE =  "EXTRA_RESULT_CODE";
     private static final String EXTRA_DATA =  "EXTRA_DATA";
     private static final String EXTRA_STATUSBAR_HEIGHT = "EXTRA_STATUSBAR_HEIGHT";
@@ -72,6 +86,7 @@ public class MainActivity extends AppCompatActivity {
         // R.layout means using the res/layout/activity_main.xml UI files
         setContentView(R.layout.activity_main);
 
+        // store UI elements
         _overlayGroup = (RadioGroup) findViewById(R.id.overlayGroup);
         _toastSwitch = (Switch) findViewById(R.id.toastSwitch);
 
@@ -101,6 +116,7 @@ public class MainActivity extends AppCompatActivity {
             }
         });
 
+        // reset settings if reset button is clicked
         _resetButton.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View view) {
@@ -114,6 +130,7 @@ public class MainActivity extends AppCompatActivity {
             }
         });
 
+        // update the service (resend values) only when button is pressed (to avoid resending too much)
         _updateButton.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View view) {
@@ -126,16 +143,6 @@ public class MainActivity extends AppCompatActivity {
         final MediaProjectionManager _mediaProjectionManager = (MediaProjectionManager) getSystemService(MEDIA_PROJECTION_SERVICE);
         startActivityForResult(_mediaProjectionManager.createScreenCaptureIntent(),  REQUEST_CODE_MEDIA_PROJECTION);
 
-    }
-
-    @Override
-    protected void onPause() {
-        super.onPause();
-    }
-
-    @Override
-    protected void onResume() {
-        super.onResume();
     }
 
     @Override
@@ -161,6 +168,16 @@ public class MainActivity extends AppCompatActivity {
             return;
         }
 
+    }
+
+    @Override
+    protected void onPause() {
+        super.onPause();
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
     }
 
     private void updateService(){
@@ -189,6 +206,8 @@ public class MainActivity extends AppCompatActivity {
         String highAreaStr = _highAreaPercent.getText().toString();
         String brightDiffStr = _brightnessDiff.getText().toString();
         String darknessStr = _darkerBrightness.getText().toString();
+
+        // catching empty strings
         if (flashingDurStr.isEmpty()) {
             flashingDurStr = "0";
         }
@@ -219,9 +238,9 @@ public class MainActivity extends AppCompatActivity {
 
         mIntent.putExtras(mBundle);
 
+        // restart service
         stopService(mIntent);
         startService(mIntent);
-
     }
 
     // src: https://www.tutorialspoint.com/what-is-the-height-of-the-status-bar-in-android
