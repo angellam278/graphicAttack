@@ -22,7 +22,8 @@
 
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-        </activity> <!-- need to add @string in res/values/strings.xml -->
+        </activity>
+        <!-- when using @string need to add @string in res/values/strings.xml -->
         <service
             android:name=".ScreenFilterService"
             android:description="@string/filter_service_description"

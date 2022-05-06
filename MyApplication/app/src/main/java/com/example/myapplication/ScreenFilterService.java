@@ -29,17 +29,24 @@ import androidx.core.graphics.ColorUtils;
 
 import java.nio.ByteBuffer;
 
+/*
+    A Service allows us to run this screen filter in the background even when the application is not open.
+    (https://developer.android.com/guide/components/services)
+
+    We are using Accessibility Service because it allows us to draw an overlay on other apps
+    and send touch gestures through it. User will need to enable Accessibility in
+    Settings > Accessibility > MyApplication to allow us to draw overlays. Because of security reasons
+    user will need to allow this per app everytime they run it.
+    NOTE: some tutorials online may say otherwise because this is only applied to newer OSs and we are testing
+    on the Google Pixel 4a. 
+*/
 
 public class ScreenFilterService extends AccessibilityService {
-
-    // APP CONFIGS
-    private int useToast = 0; // 0: use heads up notification, 1: use toast
-    private int solidOverlay = 1; // 0: use interpolated color, 1: use solid grey
 
     // variables prefixed with _ (underscore) are private variables
 
     // for printing debug lines with Logging
-    private static final String _tag = "ScreenFilterService";
+    private static final String TAG = "ScreenFilterService";
 
     // calculated once
     private int _displayWidth;
@@ -54,11 +61,21 @@ public class ScreenFilterService extends AccessibilityService {
     //MediaProjection should only be sending frames when something on the screen changes.
     private MediaProjectionManager _mediaProjectionManager;
     private static final String EXTRA_RESULT_CODE = "EXTRA_RESULT_CODE";
-    public static final String EXTRA_DATA = "EXTRA_DATA";
+    private static final String EXTRA_DATA = "EXTRA_DATA";
     private static final String EXTRA_STATUSBAR_HEIGHT = "EXTRA_STATUSBAR_HEIGHT";
+    private static final String EXTRA_USETOAST = "EXTRA_USETOAST";
+    private static final String EXTRA_OVERLAYTYPE = "EXTRA_OVERLAYTYPE";
 
-    // app's toast
-    private Toast appToast;
+    private static final String EXTRA_FLASHDURATION = "EXTRA_FLASHDURATION";
+    private static final String EXTRA_LONGFLASHAREA = "EXTRA_LONGFLASHAREA";
+    private static final String EXTRA_FLASHFRAMECOUNT = "EXTRA_FLASHFRAMECOUNT";
+    private static final String EXTRA_HIGHAREAPERCENT = "EXTRA_HIGHAREAPERCENT";
+    private static final String EXTRA_BRIGHTNESSDIFF = "EXTRA_BRIGHTNESSDIFF";
+    private static final String EXTRA_DARKERBRIGHTNESS = "EXTRA_DARKERBRIGHTNESS";
+
+    // app's toast notification
+    private Toast _appToast;
+    private boolean _useToast = false; // false: use heads up notification, true: use toast
 
     // data
     // flag to check if its the first to check
@@ -73,6 +90,14 @@ public class ScreenFilterService extends AccessibilityService {
     private int[] _currentColorList;
 
     // for evaluation
+    // user settings:
+    private int _flashingDuration;
+    private double _longFlashArea;
+    private int _flashFrame;
+    private double _highAreaPercent;
+    private int _brightnessDiff;
+    private int _darkerBrightness;
+    // calculated data
     private double _localBrightnessChange = 0.0;
     private double _localExtreme = 0.0;
     private int _frameCount = 0;
@@ -83,6 +108,7 @@ public class ScreenFilterService extends AccessibilityService {
     private double _prevFrameAverageBrightness;
 
     // for overlay display
+    private int _overlayType = 1; // 0: None, 1: use solid grey, 2: use interpolated color
     private int[] _pixelX; // stores pixel x coordinate
     private int[] _pixelY; // stores pixel y coordinate
     private int[] _pixelColorInt; // stores pixel color int
@@ -104,6 +130,27 @@ public class ScreenFilterService extends AccessibilityService {
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
         showAToast("There is a Service running in Background"); // tells user
+
+        // get all data from intent
+        _statusBarHeight = intent.getIntExtra(EXTRA_STATUSBAR_HEIGHT, 0);
+        _useToast = intent.getBooleanExtra(EXTRA_USETOAST, false);
+        _overlayType = intent.getIntExtra(EXTRA_OVERLAYTYPE, 1); // default: grey overlay
+
+        _flashingDuration = intent.getIntExtra(EXTRA_FLASHDURATION, 0);
+        _longFlashArea = intent.getIntExtra(EXTRA_LONGFLASHAREA, 0)/100.0;
+        _flashFrame = intent.getIntExtra(EXTRA_FLASHFRAMECOUNT, 0);
+        _highAreaPercent = intent.getIntExtra(EXTRA_HIGHAREAPERCENT, 0)/100.0;
+        _brightnessDiff = intent.getIntExtra(EXTRA_BRIGHTNESSDIFF, 0);
+        _darkerBrightness = intent.getIntExtra(EXTRA_DARKERBRIGHTNESS, 0);
+
+        Log.d(TAG, "onStartCommand: status barheight (" + _statusBarHeight + ")" + "  usetoast (" + _useToast + ")" + "  solidOverlay (" + _overlayType + ")");
+        Log.d(TAG, "_flashingDuration (" + _flashingDuration + ")");
+        Log.d(TAG, "_longFlashArea (" + _longFlashArea + ")");
+        Log.d(TAG, "_flashFrame (" + _flashFrame + ")");
+        Log.d(TAG, "_highAreaPercent (" + _highAreaPercent + ")");
+        Log.d(TAG, "_brightnessDiff (" + _brightnessDiff + ")");
+        Log.d(TAG, "_darkerBrightness (" + _darkerBrightness + ")");
+
         startScreenFilter(intent);
         return super.onStartCommand(intent, flags, startId);
     }
@@ -118,6 +165,7 @@ public class ScreenFilterService extends AccessibilityService {
 
     @Override
     public void onDestroy() {
+        // called when service stops
         super.onDestroy();
     }
 
@@ -148,10 +196,12 @@ public class ScreenFilterService extends AccessibilityService {
         wm.addView(_mLayout, lp);
 
         // set full screen
-       _bitmap = Bitmap.createBitmap(_displayWidth, _displayHeight, Bitmap.Config.ARGB_8888);
-       if (_bitmap == null) {
-           Log.e(_tag, "failed to create overlay bitmal.");
-       }
+        if (_displayWidth > 0 && _displayHeight > 0) {
+            _bitmap = Bitmap.createBitmap(_displayWidth, _displayHeight, Bitmap.Config.ARGB_8888);
+            if (_bitmap == null) {
+                Log.e(TAG, "failed to create overlay bitmap.");
+            }
+        }
 
         updateBitmapView();
     }
@@ -164,7 +214,7 @@ public class ScreenFilterService extends AccessibilityService {
         _mLayout.setPadding(0,0,0,0);
 
         if (iv == null) {
-            Log.e(_tag, "invalid image view!");
+            Log.e(TAG, "invalid image view!");
         } else {
             iv.setImageBitmap(_bitmap);
         }
@@ -174,20 +224,20 @@ public class ScreenFilterService extends AccessibilityService {
     // to avoid display overlapping toasts
     public void showAToast (String st){ //"Toast toast" is declared in the class
 
-        if (useToast == 1) {
+        if (_useToast) {
             // TOAST appears on the bottom (newer OS doesn't allow repositioning of toasts)
             // NOTE: toast may obscure gif area and make it detect as safe
 
-            try{ appToast.getView().isShown();     // true if visible
-                appToast.setText(st);
+            try{ _appToast.getView().isShown();     // true if visible
+                _appToast.setText(st);
             } catch (Exception e) {         // invisible if exception
-                appToast = Toast.makeText(getApplicationContext(), st, Toast.LENGTH_SHORT);
+                _appToast = Toast.makeText(getApplicationContext(), st, Toast.LENGTH_SHORT);
             } finally {
-                appToast = Toast.makeText(getApplicationContext(), st, Toast.LENGTH_SHORT);
+                _appToast = Toast.makeText(getApplicationContext(), st, Toast.LENGTH_SHORT);
             }
-            appToast = Toast.makeText(getApplicationContext(), st, Toast.LENGTH_SHORT);
-            appToast.setText(st);
-            appToast.show();  //finally display it
+            _appToast = Toast.makeText(getApplicationContext(), st, Toast.LENGTH_SHORT);
+            _appToast.setText(st);
+            _appToast.show();  //finally display it
 
         } else {
 
@@ -215,10 +265,9 @@ public class ScreenFilterService extends AccessibilityService {
      * @param intent
      */
     private void startScreenFilter(final Intent intent) {
-        Log.d(_tag, "startScreenFilter" );
+        Log.d(TAG, "startScreenFilter" );
 
         final int resultCode = intent.getIntExtra(EXTRA_RESULT_CODE, 0);
-        _statusBarHeight = intent.getIntExtra(EXTRA_STATUSBAR_HEIGHT, 0);
 
         // get MediaProjection
         _mediaProjection = _mediaProjectionManager.getMediaProjection(resultCode, intent.getParcelableExtra(EXTRA_DATA));
@@ -264,7 +313,6 @@ public class ScreenFilterService extends AccessibilityService {
                             int pixelStride = planes[0].getPixelStride();
                             // This is the distance between the start of two consecutive rows of pixels in the image.
                             int rowStride = planes[0].getRowStride();
-                            // CAN BE STORED
                             int rowPadding = rowStride - pixelStride * _displayWidth;
                             int offset = 0;
 
@@ -327,7 +375,8 @@ public class ScreenFilterService extends AccessibilityService {
         }
     }
 
-    //https://stackoverflow.com/questions/64591594/android-10-androidforegroundservicetype-mediaprojection-not-working-with-ser/68343645#68343645
+    // because media projection reads the screen, it requires a foreground service which requires a notification system to notify user about their screen being recorded
+    // src: https://stackoverflow.com/questions/64591594/android-10-androidforegroundservicetype-mediaprojection-not-working-with-ser/68343645#68343645
     private void createNotificationChannel() {
 
         Intent fullScreenIntent = new Intent(this, MainActivity.class);
@@ -378,18 +427,6 @@ public class ScreenFilterService extends AccessibilityService {
     }
 
     /**
-     * Finding oout whether the intensity levels of the two pixels are compatible.
-     * @param intensityA intensity value of pixel A
-     * @param intensityB intensity value of pixel B
-     * @return true/false Two colors are compatible if the difference in their monochrome luminance is at least 128.0).
-     */
-    private static double COMPATIBLE = 128.0;
-    private static boolean isCompatible(double intensityA, double intensityB) {
-        double value = Math.abs(intensityA - intensityB);
-        return value < COMPATIBLE;
-    }
-
-    /**
      * Obtaining the brightness level through luminance.
      * @param luminance luminance value mV
      * @return brightness level cd/m^2
@@ -398,13 +435,17 @@ public class ScreenFilterService extends AccessibilityService {
         return 413.435 * Math.pow(0.002745 * luminance + 0.0189623, 2.2);
     }
 
-    private static boolean isFrameDangerous(int framesElapsed) {
+    private boolean isFrameDangerous(int framesElapsed) {
         // check display rate with display.getRefreshRate();
         // 1 fps = 1hz
-        // dangerous is 2 (from paper) - 3 (from prev implementation) hz
-        if (framesElapsed < 4) {
+        // dangerous is 2 (from paper) - 3 (from prev implementation) hz, right now default to 4
+        if (_flashFrame == 1) {
             return true;
         }
+        if (framesElapsed < _flashFrame) {
+            return true;
+        }
+
         return false;
     }
 
@@ -432,16 +473,13 @@ public class ScreenFilterService extends AccessibilityService {
                 // previous frame's average brightness is already computed and stored
                 currentTotalBrightness += _currentBrightnessList[idx];
 
-                // do we need to look at darker threshold?
-                if (Math.abs(prevPixelBrightness - currentPixelBrightness) > 20) {
+                if (Math.abs(prevPixelBrightness - currentPixelBrightness) > _brightnessDiff) {
                     // flashing pixel
 
                     // store location and color for overlay (interpolated)
                     _pixelX[flashingPixelCount] = j;
                     _pixelY[flashingPixelCount] = i;
                     _pixelColorInt[flashingPixelCount] = ColorUtils.blendARGB(_prevColorList[idx], _currentColorList[idx], 0.50f);
-
-                    // JUST MASK WITH NEUTRAL GREY TODO
 
                     flashingPixelCount ++;
                 }
@@ -491,18 +529,18 @@ public class ScreenFilterService extends AccessibilityService {
                         // frame count will always be > 0
                         // 1) combined area of flashes occurring concurrently occupies more than 25% of the displayed screen area;
                         // 2) the  flash  frequency  is  higher  than 3 Hz
-                        if (percent_flash_pixel > 0.25) {
+                        if (percent_flash_pixel > _highAreaPercent) {
                             // need at least a pair so 2 counts
-                            Log.d(_tag, "High area of fast flashing.");
+                            Log.d(TAG, "High area of fast flashing.");
                             riskCount++;
                         }
 
                         // series of flashing images (flashing/ intensity going up and down) for longer than 5 seconds can be risky
-                        if ((_flashElapseStart!=-1) && ((cur - _flashElapseStart / 1000) > 5)){
+                        if ((_flashElapseStart != -1) && ((cur - _flashElapseStart / 1000) > _flashingDuration)){
                             // even if the difference is not high but this will also include small flickers so
                             // need to have a big area of flash but not as high as the other?
-                            if (percent_flash_pixel >= 0.08) {
-                                Log.d(_tag, "Flashing longer than 5 seconds detected.");
+                            if (percent_flash_pixel >= _longFlashArea) {
+                                Log.d(TAG, "Flashing longer than 5 seconds detected.");
                                 riskCount++;
                             }
                             // reset to not have repeated alerts
@@ -515,10 +553,10 @@ public class ScreenFilterService extends AccessibilityService {
 
                         // high contrast flash
                         // if the brightness change is more than 20 cd/m2 and the darker image's brightness is lower than 160 cd/m2 it is risky
-                        if (Math.abs(_localExtreme - _localBrightnessChange) > 20) {
-                            if (Math.min(_localExtreme, _localBrightnessChange) < 160) {
+                        if (Math.abs(_localExtreme - _localBrightnessChange) > _brightnessDiff) {
+                            if (Math.min(_localExtreme, _localBrightnessChange) < _darkerBrightness) {
                                 // paper says 4 flashes is dangerous do we need that ?
-                                Log.d(_tag, "Flash between a dark image is detected.");
+                                Log.d(TAG, "Flash between a dark image is detected.");
                                 riskCount++;
                             }
                         }
@@ -526,7 +564,7 @@ public class ScreenFilterService extends AccessibilityService {
                         _changeCount = 0;
                     }
                 } else {
-                    Log.d(_tag, "not flash (slow change in brightness)");
+                    Log.d(TAG, "not flash (slow change in brightness)");
                     // not flash (slow change in brightness)
 
                     // not a flash so reset flash elapse
@@ -544,58 +582,57 @@ public class ScreenFilterService extends AccessibilityService {
 
         // Evaluating the results
         if (riskCount == 0) {
-            // clear overlay
-            if (_bitmap != null) {
-                _bitmap.eraseColor(Color.TRANSPARENT);
-            }
+            // safe
+        } else if (riskCount == 1) {
+            System.out.println("This GIF is risky");
+            showAToast("This is risky!");
+        } else if(riskCount == 2) {
+            System.out.println("This GIF is dangerous");
+            showAToast("Danger detected!");
+        } else if (riskCount == 3) {
+            System.out.println("This GIF is extreme");
+            showAToast("Extreme Danger detected!");
         } else {
+            // should never be called
+            Log.e(TAG, "This GIF is beyond extreme");
+            showAToast("Extreme Danger detected!");
+        }
 
-            if (riskCount == 1) {
-                System.out.println("This GIF is risky");
-                showAToast("This is risky!");
-            } else if(riskCount == 2) {
-                System.out.println("This GIF is dangerous");
-                showAToast("Danger detected!");
-            } else if (riskCount == 3) {
-                System.out.println("This GIF is extreme");
-                showAToast("Extreme Danger detected!");
+        // if no overlay, we still store data for pixels just not displaying it
+        if (_overlayType != 0) {
+            // has overlay
+            if (riskCount == 0) {
+                // clear overlay
+                if (_bitmap != null) {
+                    _bitmap.eraseColor(Color.TRANSPARENT);
+                }
             } else {
-                // should never be called
-                Log.e(_tag, "This GIF is beyond extreme");
-                showAToast("Extreme Danger detected!");
-            }
+                // draw overlay (setting the pixels of the bitmap)
+                if (_bitmap != null) {
+                    for (int i = 0; i < _pixelX.length; ++i) {
+                        int x = _pixelX[i];
+                        int y = _pixelY[i];
 
-            // draw overlay
-            if (_bitmap != null) {
-                for (int i = 0; i < _pixelX.length; ++i) {
-                    int x = _pixelX[i];
-                    int y = _pixelY[i];
+                        int r = Color.red(_pixelColorInt[i]) ;
+                        int g = Color.green(_pixelColorInt[i]) ;
+                        int b = Color.blue(_pixelColorInt[i]) ;
 
-                    int r = Color.red(_pixelColorInt[i]) ;
-                    int g = Color.green(_pixelColorInt[i]) ;
-                    int b = Color.blue(_pixelColorInt[i]) ;
-
-                    if (solidOverlay == 1) {
-                        _bitmap.setPixel(x, y , Color.GRAY);
-                    } else {
-                        _bitmap.setPixel(x, y , Color.rgb(r,g,b));
+                        if (_overlayType == 1) {
+                            _bitmap.setPixel(x, y , Color.GRAY);
+                        } else if (_overlayType == 2) {
+                            _bitmap.setPixel(x, y , Color.rgb(r,g,b));
+                        }
                     }
+                } else {
+                    Log.e(TAG, "Trying to write to empty Bitmap. Please make sure you enable Settings->Accessibility to allow overlay.");
                 }
             }
 
-        }
+            if (_mLayout != null) {
+                // update the bitmap on ImageView display
+                updateBitmapView();
+            }
 
-        if (_mLayout != null) {
-            updateBitmapView();
         }
-
     }
 }
-
-//I/Choreographer: Skipped 84 frames!  The application may be doing too much work on its main thread.
-//https://github.com/flutter/flutter/issues/40563
-
-// debugging tip
-// System.out.println("message to print"); -> to print to the "Run" console
-// Log.e(TAG_string, "message"); -> to print with logger .e will be red (for error)
-// Log.d <- debug log message, .w is for warning

@@ -1,4 +1,31 @@
 <resources>
     <string name="app_name">My Application</string>
     <string name="filter_service_description">My Filter service</string>
+    <string name="fast_flashing_when_flashes_are_faster_than_frames">Fast Flashing when flashes are faster than: (frames)</string>
+    <string name="and_covers_and_area_of_atleast">and covers and area of atleast (%):</string>
+    <string name="turn_on_to_use_toast_instead_of_heads_up_notification_note_need_to_allow_notification_per_app_in_settings">Turn on to use Toast instead of Heads Up Notification. Note: need to allow notification per App in Settings.</string>
+    <string name="use_toast_notfication">Use Toast Notfication</string>
+    <string name="candela_per_square_meter_default_20">Candela per square meter (Default: 20)</string>
+    <string name="linear_interpolation">Linear Interpolation</string>
+    <string name="solid_grey">Solid Grey</string>
+    <string name="no_overlay">No Overlay</string>
+    <string name="_20">20</string>
+    <string name="_160">160</string>
+    <string name="candela_per_square_meter_default_160">Candela per square meter (Default: 160)</string>
+    <string name="default_8">% (Default:8 )</string>
+    <string name="evaluation_settings">Evaluation Settings</string>
+    <string name="and_the_darker_frame_has_a_brightness_lower_than_cd_m_2">and the darker frame has a brightness lower than: (Cd/m^2)</string>
+    <string name="of_screen_default_25">% of screen (default: 25)</string>
+    <string name="reset">Reset</string>
+    <string name="update_service">Update Service</string>
+    <string name="seconds_default_5">seconds (default 5)</string>
+    <string name="frames">frames</string>
+    <string name="_4">4</string>
+    <string name="warn_when_flashing_is_longer_than_seconds">Warn when flashing is longer than (seconds):</string>
+    <string name="overlay_settings_settings_accessibility_must_be_enabled"><![CDATA[Overlay Settings (Settings > Accessibility must be enabled)]]></string>
+    <string name="_25">25</string>
+    <string name="_8">8</string>
+    <string name="_5">5</string>
+    <string name="flash_is_detected_if_brightness_difference_is_more_than_cd_m_2">Flash is detected if brightness difference is more than: (Cd/m^2)</string>
+    <string name="high_flashing_area_when_flashing_pixels_are_more_than">High Flashing area when flashing pixels are more than: (%)</string>
 </resources>
