@@ -17,3 +17,14 @@ https://docs.google.com/presentation/d/17PBTRKwa89gZPMP3BoM1ahDHR9G-x_7Dh2bz13LJ
 ## User Interface: 
 
 <img src="https://github.com/angellam278/graphicAttack/blob/master/ui.png" width="400">
+
+
+## Filter Examples:
+
+Solid Grey
+
+<img src="https://github.com/angellam278/graphicAttack/blob/master/grey_filter_example.png" width="400">
+
+Linear Interpolation between current and next frames to ease the transition.
+
+<img src="https://github.com/angellam278/graphicAttack/blob/master/lerp_filter_example.png" width="400">
