@@ -18,6 +18,7 @@ import android.widget.Toast;
 
 /*
     There are 3 files I made: ScreenFilterService.Java, MainActivity.java, overlay.xml, activity_main.xml
+    Other files such as values/colors.xaml and strings.xml can also be edited but is also linked to the .xml ui files
     .xml files are the UI files
     AndroidManifest.xml is not a UI file but it tells the App everything the app needs to know of.
     MainActivity.java is the main entry of the app which launches the ScreenFilterService in the background.

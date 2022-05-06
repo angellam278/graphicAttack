@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">My Application</string>
+    <string name="app_name">Graphic Attack Filter</string>
     <string name="filter_service_description">My Filter service</string>
     <string name="fast_flashing_when_flashes_are_faster_than_frames">Fast Flashing when flashes are faster than: (frames)</string>
     <string name="and_covers_and_area_of_atleast">and covers and area of atleast (%):</string>
