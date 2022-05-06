@@ -432,7 +432,6 @@ public class ScreenFilterService extends AccessibilityService {
         // check display rate with display.getRefreshRate();
         // 1 fps = 1hz
         // dangerous is 2 (from paper) - 3 (from prev implementation) hz, right now default to 4
-       Log.e(TAG, "isFrameDangerous: " +_flashFrame );
         if (_flashFrame == 1) {
             return true;
         }

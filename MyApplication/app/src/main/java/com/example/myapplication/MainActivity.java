@@ -55,6 +55,7 @@ public class MainActivity extends AppCompatActivity {
     private EditText _brightnessDiff;
     private EditText _darkerBrightness;
     private Button _resetButton;
+    private Button _updateButton;
 
     private Intent _mediaRequestIntentData;
     private int _mediaRequestresultCode;
@@ -82,10 +83,44 @@ public class MainActivity extends AppCompatActivity {
         _darkerBrightness = (EditText) findViewById(R.id.darkerBrightness);
 
         _resetButton = (Button) findViewById(R.id.resetButton);
+        _updateButton = (Button) findViewById(R.id.updateService);
 
         _noOverlayId = findViewById(R.id.noOverlay).getId();
         _solidOverlayId = findViewById(R.id.solidOverlay).getId();
         _lerpOverlayId = findViewById(R.id.lerpOverlay).getId();
+
+        // update service's configs if switch is changed
+        _overlayGroup.setOnCheckedChangeListener(new RadioGroup.OnCheckedChangeListener(){
+            public void onCheckedChanged(RadioGroup group, int checkId) {
+                updateService();
+            }
+        });
+        _toastSwitch.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
+            public void onCheckedChanged(CompoundButton buttonView, boolean isChecked) {
+                updateService();
+            }
+        });
+
+        _resetButton.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                // reset to paper's original values
+                _flashingDuration.setText("5"); // 5 seconds
+                _longFlashArea.setText("8"); // 8%
+                _flashFrameCount.setText("4"); // 4 frames
+                _highAreaPercent.setText("25"); // 25%
+                _brightnessDiff.setText("20"); //20 cd/m^2
+                _darkerBrightness.setText("160"); // 160
+            }
+        });
+
+        _updateButton.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                // resend values to service
+                updateService();
+            }
+        });
 
         // ask for permission to record screen
         final MediaProjectionManager _mediaProjectionManager = (MediaProjectionManager) getSystemService(MEDIA_PROJECTION_SERVICE);
@@ -116,134 +151,6 @@ public class MainActivity extends AppCompatActivity {
             // store to later use to update service
             _mediaRequestIntentData = data;
             _mediaRequestresultCode = resultCode;
-
-            // update service's configs if switch is changed
-            _overlayGroup.setOnCheckedChangeListener(new RadioGroup.OnCheckedChangeListener(){
-                public void onCheckedChanged(RadioGroup group, int checkId) {
-                    updateService();
-                }
-            });
-            _toastSwitch.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
-                public void onCheckedChanged(CompoundButton buttonView, boolean isChecked) {
-                    updateService();
-                }
-            });
-
-            _resetButton.setOnClickListener(new View.OnClickListener() {
-                @Override
-                public void onClick(View view) {
-                    // reset to paper's original values
-                    _flashingDuration.setText("5"); // 5 seconds
-                    _longFlashArea.setText("8"); // 8%
-                    _flashFrameCount.setText("4"); // 4 frames
-                    _highAreaPercent.setText("25"); // 25%
-                    _brightnessDiff.setText("20"); //20 cd/m^2
-                    _darkerBrightness.setText("160"); // 160
-                }
-            });
-
-            // event listener to update service if the values are changed in UI
-            _flashingDuration.addTextChangedListener(new TextWatcher() {
-                @Override
-                public void beforeTextChanged(CharSequence charSequence, int i, int i1, int i2) {
-
-                }
-
-                @Override
-                public void onTextChanged(CharSequence charSequence, int i, int i1, int i2) {
-
-                }
-
-                @Override
-                public void afterTextChanged(Editable editable) {
-                    updateService();
-                }
-            });
-
-            _longFlashArea.addTextChangedListener(new TextWatcher() {
-                @Override
-                public void beforeTextChanged(CharSequence charSequence, int i, int i1, int i2) {
-
-                }
-
-                @Override
-                public void onTextChanged(CharSequence charSequence, int i, int i1, int i2) {
-
-                }
-
-                @Override
-                public void afterTextChanged(Editable editable) {
-                    updateService();
-                }
-            });
-
-            _flashFrameCount.addTextChangedListener(new TextWatcher() {
-                @Override
-                public void beforeTextChanged(CharSequence charSequence, int i, int i1, int i2) {
-
-                }
-
-                @Override
-                public void onTextChanged(CharSequence charSequence, int i, int i1, int i2) {
-
-                }
-
-                @Override
-                public void afterTextChanged(Editable editable) {
-                    updateService();
-                }
-            });
-
-            _highAreaPercent.addTextChangedListener(new TextWatcher() {
-                @Override
-                public void beforeTextChanged(CharSequence charSequence, int i, int i1, int i2) {
-
-                }
-
-                @Override
-                public void onTextChanged(CharSequence charSequence, int i, int i1, int i2) {
-
-                }
-
-                @Override
-                public void afterTextChanged(Editable editable) {
-                    updateService();
-                }
-            });
-
-            _brightnessDiff.addTextChangedListener(new TextWatcher() {
-                @Override
-                public void beforeTextChanged(CharSequence charSequence, int i, int i1, int i2) {
-
-                }
-
-                @Override
-                public void onTextChanged(CharSequence charSequence, int i, int i1, int i2) {
-
-                }
-
-                @Override
-                public void afterTextChanged(Editable editable) {
-                    updateService();
-                }
-            });
-
-            _darkerBrightness.addTextChangedListener(new TextWatcher() {
-                @Override
-                public void beforeTextChanged(CharSequence charSequence, int i, int i1, int i2) {
-
-                }
-
-                @Override
-                public void onTextChanged(CharSequence charSequence, int i, int i1, int i2) {
-
-                }
-
-                @Override
-                public void afterTextChanged(Editable editable) {
-                    updateService();
-                }
-            });
 
             // cannot startActivity for Result in Service, so need to ask for permission in activity
             // and send result code into the Service

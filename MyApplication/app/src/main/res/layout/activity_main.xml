@@ -4,165 +4,183 @@
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
+    android:layout_centerInParent="true"
+    app:layout_anchorGravity="center|center_horizontal|center_vertical"
     tools:context=".MainActivity"
     tools:visibility="invisible">
 
-    <LinearLayout
-        android:layout_width="372dp"
-        android:layout_height="708dp"
-        android:layout_marginStart="22dp"
-        android:layout_marginEnd="22dp"
-        android:orientation="vertical"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintStart_toStartOf="parent"
-        tools:layout_editor_absoluteY="10dp">
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:paddingLeft="5dp"
+        android:paddingRight="5dp">
 
-        <TextView
-            android:id="@+id/textView2"
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="Turn on to use Toast instead of Heads Up Notification. Note: need to allow notification per App in Settings." />
+            android:orientation="vertical">
 
-        <Switch
-            android:id="@+id/toastSwitch"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Use Toast Notfication" />
-
-        <TextView
-            android:id="@+id/textView"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="Overlay Settings (Settings > Accessibility must be enabled)" />
-
-        <RadioGroup
-            android:id="@+id/overlayGroup"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content">
-
-            <RadioButton
-                android:id="@+id/noOverlay"
+            <TextView
+                android:id="@+id/textView2"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="No Overlay" />
+                android:text="@string/turn_on_to_use_toast_instead_of_heads_up_notification_note_need_to_allow_notification_per_app_in_settings" />
 
-            <RadioButton
-                android:id="@+id/solidOverlay"
+            <Switch
+                android:id="@+id/toastSwitch"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/use_toast_notfication" />
+
+            <TextView
+                android:id="@+id/textView"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:checked="true"
-                android:text="Solid Grey" />
+                android:text="@string/overlay_settings_settings_accessibility_must_be_enabled"
+                android:textStyle="bold" />
 
-            <RadioButton
-                android:id="@+id/lerpOverlay"
+            <RadioGroup
+                android:id="@+id/overlayGroup"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content">
+
+                <RadioButton
+                    android:id="@+id/noOverlay"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/no_overlay" />
+
+                <RadioButton
+                    android:id="@+id/solidOverlay"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:checked="true"
+                    android:text="@string/solid_grey" />
+
+                <RadioButton
+                    android:id="@+id/lerpOverlay"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/linear_interpolation" />
+
+            </RadioGroup>
+
+            <TextView
+                android:id="@+id/textView3"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="Linear Interpolation" />
+                android:text="@string/evaluation_settings"
+                android:textStyle="bold" />
 
-        </RadioGroup>
+            <TextView
+                android:id="@+id/textView10"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Fast flashing when flashes are faster than: (frames)" />
 
-        <TextView
-            android:id="@+id/textView3"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="Evaluation Settings" />
+            <EditText
+                android:id="@+id/flashFrameCount"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:ems="10"
+                android:hint="@string/frames"
+                android:importantForAutofill="no"
+                android:inputType="number"
+                android:text="@string/_4" />
 
-        <TextView
-            android:id="@+id/textView4"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="Warn when flashing is longer than (seconds):" />
+            <TextView
+                android:id="@+id/textView7"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/and_covers_and_area_of_atleast" />
 
-        <EditText
-            android:id="@+id/flashingDuration"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:ems="10"
-            android:hint="seconds (default 5)"
-            android:inputType="number"
-            android:text="5" />
+            <EditText
+                android:id="@+id/longFlashArea"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:ems="10"
+                android:hint="@string/default_8"
+                android:importantForAutofill="no"
+                android:inputType="number"
+                android:text="@string/_8" />
 
-        <TextView
-            android:id="@+id/textView7"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="and covers and area of atleast (%):" />
+            <TextView
+                android:id="@+id/textView4"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/warn_when_flashing_is_longer_than_seconds" />
 
-        <EditText
-            android:id="@+id/longFlashArea"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:ems="10"
-            android:hint="% (Default:8 )"
-            android:inputType="number"
-            android:text="8" />
+            <EditText
+                android:id="@+id/flashingDuration"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:ems="10"
+                android:hint="@string/seconds_default_5"
+                android:importantForAutofill="no"
+                android:inputType="number"
+                android:text="@string/_5" />
 
-        <TextView
-            android:id="@+id/textView5"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="Fast Flashing when flashes are faster than: (frames)" />
+            <TextView
+                android:id="@+id/textView6"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/high_flashing_area_when_flashing_pixels_are_more_than" />
 
-        <EditText
-            android:id="@+id/flashFrameCount"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:ems="10"
-            android:hint="frames"
-            android:inputType="number"
-            android:text="4" />
+            <EditText
+                android:id="@+id/highAreaPercent"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:ems="10"
+                android:hint="@string/of_screen_default_25"
+                android:importantForAutofill="no"
+                android:inputType="number"
+                android:text="@string/_25" />
 
-        <TextView
-            android:id="@+id/textView6"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="High Flashing area when flashing pixels are more than: (%)" />
+            <TextView
+                android:id="@+id/textView8"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/flash_is_detected_if_brightness_difference_is_more_than_cd_m_2" />
 
-        <EditText
-            android:id="@+id/highAreaPercent"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:ems="10"
-            android:hint="% of screen (default: 25)"
-            android:inputType="number"
-            android:text="25" />
+            <EditText
+                android:id="@+id/brightnessDiff"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:ems="10"
+                android:hint="@string/candela_per_square_meter_default_20"
+                android:importantForAutofill="no"
+                android:inputType="number"
+                android:text="@string/_20" />
 
-        <TextView
-            android:id="@+id/textView8"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="Flash is detected if brightness difference is more than: (Cd/m^2)" />
+            <TextView
+                android:id="@+id/textView9"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/and_the_darker_frame_has_a_brightness_lower_than_cd_m_2" />
 
-        <EditText
-            android:id="@+id/brightnessDiff"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:ems="10"
-            android:hint="Candela per square meter (Default: 20)"
-            android:inputType="number"
-            android:text="20" />
+            <EditText
+                android:id="@+id/darkerBrightness"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:ems="10"
+                android:hint="@string/candela_per_square_meter_default_160"
+                android:importantForAutofill="no"
+                android:inputType="number"
+                android:text="@string/_160" />
 
-        <TextView
-            android:id="@+id/textView9"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="and the darker frame has a brightness lower than: (Cd/m^2)" />
+            <Button
+                android:id="@+id/resetButton"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/reset" />
 
-        <EditText
-            android:id="@+id/darkerBrightness"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:ems="10"
-            android:hint="Candela per square meter (Default: 160)"
-            android:inputType="number"
-            android:text="160" />
+            <Button
+                android:id="@+id/updateService"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/update_service" />
 
-        <Button
-            android:id="@+id/resetButton"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="Reset" />
-
-    </LinearLayout>
+        </LinearLayout>
+    </ScrollView>
 
 </androidx.constraintlayout.widget.ConstraintLayout>
