@@ -445,7 +445,6 @@ public class ScreenFilterService extends AccessibilityService {
         if (framesElapsed < _flashFrame) {
             return true;
         }
-
         return false;
     }
 

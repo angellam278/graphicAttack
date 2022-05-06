@@ -26,6 +26,7 @@ import android.widget.Toast;
     If you see this error: I/Choreographer: Skipped 84 frames!  The application may be doing too much work on its main thread.
     I'm not sure if its still a bug, but possibly multithreading in service can solve this because pixel evaluations are parallel?
     Here are what others said about id: https://github.com/flutter/flutter/issues/40563
+    NOTE: testing on emulator may have more memory issues since emulators have less RAMs
 
     DEBUGGING TIPS:
     System.out.println("message to print"); -> to print to the "Run" console
