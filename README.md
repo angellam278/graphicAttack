@@ -21,6 +21,8 @@ https://docs.google.com/presentation/d/17PBTRKwa89gZPMP3BoM1ahDHR9G-x_7Dh2bz13LJ
 
 ## Filter Examples:
 
+Will draw over dangerous flashing pixels with the selected filter.
+
 Solid Grey
 
 <img src="https://github.com/angellam278/graphicAttack/blob/master/grey_filter_example.png" width="400">
